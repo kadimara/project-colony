@@ -8,7 +8,7 @@
 // handling, and the render/tick loops that compose everything together.
 import { mulberry32, buildMap, buildWalls, DIRT } from './worldgen';
 import { isAdjacent, findPath, bfsToAdjacent, hasLineOfSight } from './pathfinding';
-import { drawTile, drawObstacle, drawSquareEntity, drawHpBar, drawDummy, drawNest, drawNestRadius } from './rendering';
+import { drawTile, drawObstacle, drawSquareEntity, drawHpBar, drawNest, drawNestRadius } from './rendering';
 
 let started = false;
 
@@ -80,13 +80,9 @@ export function initColonyGame() {
   const foodItems = [];
   function foodAt(x, y) { return foodItems.find(f => f.x === x && f.y === y); }
 
-  // ---- dummy target for the soldier to practice on ----
-  const DUMMY_MAX_HP = 20;
-  const DUMMY_RESPAWN_MS = 3000;
+  // ---- soldier attack tuning ----
   const SOLDIER_ATK_DAMAGE = 3;
   const SOLDIER_ATK_COOLDOWN = 650;
-  const dummy = { x: SPAWN_X, y: SPAWN_Y, hp: DUMMY_MAX_HP, maxHp: DUMMY_MAX_HP, destroyedAt: 0, flashUntil: 0 };
-  function isDummyAt(x, y) { return x === dummy.x && y === dummy.y; }
 
   // ---- roaming enemies: wander until they see you, then chase and attack ----
   const ENEMY_COUNT = 5;
@@ -112,7 +108,7 @@ export function initColonyGame() {
     tileX: SPAWN_X, tileY: SPAWN_Y, px: SPAWN_X * TILE, py: SPAWN_Y * TILE,
     dir: 'down', moving: false, moveStart: 0, moveDur: 240,
     fromX: 0, fromY: 0, toX: 0, toY: 0, path: [],
-    caste: null, carryingType: null, // null | 'obstacle' | 'food' | 'nest'
+    caste: null, carryingType: null, // null | 'obstacle' | 'food'
     pendingAction: null, // {type:'pickup'|'place', x, y, kind}
     pathHistory: [],
     attackTarget: null, lastAttack: 0,
@@ -120,7 +116,7 @@ export function initColonyGame() {
   };
   function isPlayerAt(x, y) { return !!player.caste && player.tileX === x && player.tileY === y; }
 
-  // ---- nest: movable 2x2 structure. Player manually spawns ants here,
+  // ---- nest: fixed 2x2 structure. Player manually spawns ants here,
   // consuming food that must be sitting within NEST_FOOD_RADIUS tiles ----
   const NEST_SIZE = 2;
   const NEST_FOOD_RADIUS = 3;       // (Chebyshev) distance food must be within to fuel a spawn
@@ -129,7 +125,6 @@ export function initColonyGame() {
   const MAX_COLONISTS = 15;
   const nest = {
     x: SPAWN_X + 1, y: SPAWN_Y,     // top-left tile of the 2x2 footprint — kept within the spawn safety carve
-    carried: false,
     incubating: false, incubateStart: 0, pendingCaste: null,
   };
   function nestCells() {
@@ -138,10 +133,7 @@ export function initColonyGame() {
       { x: nest.x, y: nest.y + 1 }, { x: nest.x + 1, y: nest.y + 1 },
     ];
   }
-  function isNestAt(x, y) { return !nest.carried && nestCells().some(c => c.x === x && c.y === y); }
-  function isAdjacentToNest(x, y) {
-    return nestCells().some(c => isAdjacent(x, y, c.x, c.y));
-  }
+  function isNestAt(x, y) { return nestCells().some(c => c.x === x && c.y === y); }
   // Euclidean distance from (x,y) to the nearest occupied nest tile — used
   // for the food-fueling radius, which renders as a circular zone
   function nestDistance(x, y) {
@@ -151,13 +143,6 @@ export function initColonyGame() {
       if (d < best) best = d;
     }
     return best;
-  }
-  function canPlaceNestAt(x, y) {
-    const cells = [{ x, y }, { x: x + 1, y }, { x, y: y + 1 }, { x: x + 1, y: y + 1 }];
-    return cells.every(c =>
-      terrainWalkable(c.x, c.y) && !isWall(c.x, c.y) && !foodAt(c.x, c.y) &&
-      !isDummyAt(c.x, c.y) && !isEnemyAt(c.x, c.y) && !isColonistAt(c.x, c.y) && !isPlayerAt(c.x, c.y)
-    );
   }
 
   // ---- colonists: autonomous NPC ants belonging to the colony ----
@@ -178,12 +163,11 @@ export function initColonyGame() {
     for (let tries = 0; tries < 300; tries++) {
       const x = 1 + Math.floor(rng() * (MAP_W - 2));
       const y = 1 + Math.floor(rng() * (MAP_H - 2));
-      if (!isWall(x, y) && !foodAt(x, y) && !isDummyAt(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y)) return { x, y };
+      if (!isWall(x, y) && !foodAt(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y)) return { x, y };
     }
     return null;
   }
   for (let i = 0; i < 40; i++) { const s = randomOpenTile(); if (s) foodItems.push(s); }
-  { const s = randomOpenTile(); if (s) { dummy.x = s.x; dummy.y = s.y; } }
 
   function makeEnemy(x, y) {
     return {
@@ -245,13 +229,10 @@ export function initColonyGame() {
     wallSet = buildWalls(seed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
     foodItems.length = 0;
     for (let i = 0; i < 40; i++) { const s = randomOpenTile(); if (s) foodItems.push(s); }
-    const dSpot = randomOpenTile();
-    if (dSpot) { dummy.x = dSpot.x; dummy.y = dSpot.y; }
-    dummy.hp = DUMMY_MAX_HP; dummy.destroyedAt = 0; dummy.flashUntil = 0;
     spawnEnemies();
 
     nest.x = SPAWN_X + 1; nest.y = SPAWN_Y;
-    nest.carried = false; nest.pendingCaste = null;
+    nest.pendingCaste = null;
     nest.incubating = false; nest.incubateStart = 0;
     colonists.length = 0;
 
@@ -274,7 +255,7 @@ export function initColonyGame() {
   }
 
   function walkable(x, y) {
-    return terrainWalkable(x, y) && !isWall(x, y) && !isDummyAt(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y);
+    return terrainWalkable(x, y) && !isWall(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y);
   }
 
   // ---- scent trail ----
@@ -306,19 +287,13 @@ export function initColonyGame() {
     }
     worldCtx.fillStyle = '#e8c44f';
     for (const f of foodItems) worldCtx.fillRect(f.x * WORLD_TILE, f.y * WORLD_TILE, WORLD_TILE, WORLD_TILE);
-    if (dummy.hp > 0) {
-      worldCtx.fillStyle = '#c9a876';
-      worldCtx.fillRect(dummy.x * WORLD_TILE - 1, dummy.y * WORLD_TILE - 1, WORLD_TILE + 2, WORLD_TILE + 2);
-    }
     worldCtx.fillStyle = '#8b3fae';
     for (const en of enemies) {
       if (en.hp <= 0) continue;
       worldCtx.fillRect(en.tileX * WORLD_TILE - 1, en.tileY * WORLD_TILE - 1, WORLD_TILE + 2, WORLD_TILE + 2);
     }
-    if (!nest.carried) {
-      worldCtx.fillStyle = '#f2efe6';
-      worldCtx.fillRect(nest.x * WORLD_TILE - 1, nest.y * WORLD_TILE - 1, WORLD_TILE * 2 + 2, WORLD_TILE * 2 + 2);
-    }
+    worldCtx.fillStyle = '#f2efe6';
+    worldCtx.fillRect(nest.x * WORLD_TILE - 1, nest.y * WORLD_TILE - 1, WORLD_TILE * 2 + 2, WORLD_TILE * 2 + 2);
     for (const c of colonists) {
       if (c.hp <= 0) continue;
       worldCtx.fillStyle = CASTES[c.caste].color;
@@ -341,19 +316,7 @@ export function initColonyGame() {
 
     // switching away while carrying something drops it right where you're
     // standing instead of losing it, as long as there's room for it
-    if (player.carryingType === 'nest') {
-      let placed = false;
-      for (let ring = 0; ring <= 4 && !placed; ring++) {
-        for (let dx = -ring; dx <= ring && !placed; dx++) {
-          for (let dy = -ring; dy <= ring && !placed; dy++) {
-            const ax = player.tileX + dx, ay = player.tileY + dy;
-            if (canPlaceNestAt(ax, ay)) { nest.x = ax; nest.y = ay; placed = true; }
-          }
-        }
-      }
-      nest.carried = false; // falls back onto whatever's there in the rare case nowhere nearby is free
-      if (!placed) { nest.x = player.tileX; nest.y = player.tileY; }
-    } else if (player.carryingType && !isWall(player.tileX, player.tileY) && !foodAt(player.tileX, player.tileY)) {
+    if (player.carryingType && !isWall(player.tileX, player.tileY) && !foodAt(player.tileX, player.tileY)) {
       if (player.carryingType === 'obstacle') wallSet.add(player.tileX + ',' + player.tileY);
       else foodItems.push({ x: player.tileX, y: player.tileY });
     }
@@ -438,7 +401,7 @@ export function initColonyGame() {
     updateHud();
   }
   function doPlace(x, y) {
-    if (!terrainWalkable(x, y) || isWall(x, y) || foodAt(x, y) || isDummyAt(x, y) || isEnemyAt(x, y) || isNestAt(x, y) || isColonistAt(x, y)) return;
+    if (!terrainWalkable(x, y) || isWall(x, y) || foodAt(x, y) || isEnemyAt(x, y) || isNestAt(x, y) || isColonistAt(x, y)) return;
     if (player.carryingType === 'obstacle') wallSet.add(x + ',' + y);
     else if (player.carryingType === 'food') foodItems.push({ x, y });
     spawnFloatingText(player, 'placed ' + player.carryingType, '#ecdfc4');
@@ -454,54 +417,12 @@ export function initColonyGame() {
     }
   }
   function tryPlaceAt(x, y) {
-    if (!terrainWalkable(x, y) || obstacleAt(x, y) || foodAt(x, y) || isDummyAt(x, y) || isNestAt(x, y) || isColonistAt(x, y)) return;
+    if (!terrainWalkable(x, y) || obstacleAt(x, y) || foodAt(x, y) || isNestAt(x, y) || isColonistAt(x, y)) return;
     if (isAdjacent(player.tileX, player.tileY, x, y)) {
       doPlace(x, y);
     } else {
       const path = bfsToAdjacent(player.tileX, player.tileY, x, y, walkable);
       if (path.length) { player.pendingAction = { type: 'place', x, y }; player.path = path; }
-    }
-  }
-
-  // ---- worker: relocate the (2x2) nest ----
-  function doPickupNest() {
-    if (nest.carried) return;
-    nest.carried = true;
-    player.carryingType = 'nest';
-    spawnFloatingText(player, 'picked up nest', '#f2efe6');
-    updateHud();
-  }
-  function doPlaceNest(x, y) {
-    if (!canPlaceNestAt(x, y)) return;
-    nest.x = x; nest.y = y; nest.carried = false;
-    spawnFloatingText(player, 'placed nest', '#ecdfc4');
-    player.carryingType = null;
-    updateHud();
-  }
-  function pathToNearestNestCell(cells) {
-    let best = null, bestLen = Infinity;
-    for (const c of cells) {
-      const p = bfsToAdjacent(player.tileX, player.tileY, c.x, c.y, walkable);
-      if (p.length && p.length < bestLen) { best = p; bestLen = p.length; }
-    }
-    return best;
-  }
-  function tryPickupNest() {
-    if (isAdjacentToNest(player.tileX, player.tileY)) {
-      doPickupNest();
-    } else {
-      const path = pathToNearestNestCell(nestCells());
-      if (path) { player.pendingAction = { type: 'pickup', kind: 'nest' }; player.path = path; }
-    }
-  }
-  function tryPlaceNestAt(x, y) {
-    if (!canPlaceNestAt(x, y)) return;
-    const cells = [{ x, y }, { x: x + 1, y }, { x, y: y + 1 }, { x: x + 1, y: y + 1 }];
-    if (cells.some(c => isAdjacent(player.tileX, player.tileY, c.x, c.y))) {
-      doPlaceNest(x, y);
-    } else {
-      const path = pathToNearestNestCell(cells);
-      if (path) { player.pendingAction = { type: 'place', kind: 'nest', x, y }; player.path = path; }
     }
   }
 
@@ -513,34 +434,27 @@ export function initColonyGame() {
     updateHud();
   }
 
-  // ---- soldier: attack the dummy or an enemy ----
+  // ---- soldier: attack an enemy ----
   function attemptSoldierAttack(now) {
     const t = player.attackTarget;
     if (!t || t.hp <= 0) return;
     if (now - player.lastAttack < SOLDIER_ATK_COOLDOWN) return;
     player.lastAttack = now;
-    const tx = (t === dummy) ? dummy.x : t.tileX;
-    const ty = (t === dummy) ? dummy.y : t.tileY;
+    const tx = t.tileX, ty = t.tileY;
     t.hp -= SOLDIER_ATK_DAMAGE;
     t.flashUntil = now + 140;
     spawnFloatingText({ px: tx * TILE, py: ty * TILE }, '-' + SOLDIER_ATK_DAMAGE, '#e8a838');
     if (t.hp <= 0) {
       t.hp = 0;
       player.attackTarget = null;
-      if (t === dummy) {
-        dummy.destroyedAt = now;
-        spawnFloatingText({ px: tx * TILE, py: ty * TILE }, 'destroyed!', '#c1633c');
-        showToast('Dummy destroyed — respawning shortly');
-      } else {
-        killEnemy(t, tx, ty);
-      }
+      killEnemy(t, tx, ty);
     }
   }
 
   // every living ant/enemy drops one food where it fell, falling back to a
   // nearby open tile if that exact spot is occupied
   function dropFoodOnDeath(tx, ty) {
-    const freeAt = (x, y) => terrainWalkable(x, y) && !isWall(x, y) && !foodAt(x, y) && !isDummyAt(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y);
+    const freeAt = (x, y) => terrainWalkable(x, y) && !isWall(x, y) && !foodAt(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y);
     let dropX = tx, dropY = ty;
     if (!freeAt(dropX, dropY)) {
       const ring = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
@@ -820,7 +734,7 @@ export function initColonyGame() {
     return player.caste && nestDistance(player.tileX, player.tileY) <= NEST_FOOD_RADIUS;
   }
   function startNestSpawn(casteKey) {
-    if (nest.carried || nest.incubating) return false;
+    if (nest.incubating) return false;
     if (!playerInNestRadius()) { showToast('Stand within the nest\'s food circle to spawn an ant'); return false; }
     if (colonists.length >= MAX_COLONISTS) { showToast('Colony is at full population'); return false; }
     const nearbyIdx = [];
@@ -848,16 +762,7 @@ export function initColonyGame() {
   function onPlayerArrived(now) {
     if (player.pendingAction) {
       const pa = player.pendingAction;
-      if (pa.kind === 'nest') {
-        if (pa.type === 'pickup') {
-          if (isAdjacentToNest(player.tileX, player.tileY)) { doPickupNest(); player.pendingAction = null; }
-          else if (player.path.length === 0) player.pendingAction = null;
-        } else {
-          const cells = [{ x: pa.x, y: pa.y }, { x: pa.x + 1, y: pa.y }, { x: pa.x, y: pa.y + 1 }, { x: pa.x + 1, y: pa.y + 1 }];
-          if (cells.some(c => isAdjacent(player.tileX, player.tileY, c.x, c.y))) { doPlaceNest(pa.x, pa.y); player.pendingAction = null; }
-          else if (player.path.length === 0) player.pendingAction = null;
-        }
-      } else if (isAdjacent(player.tileX, player.tileY, pa.x, pa.y)) {
+      if (isAdjacent(player.tileX, player.tileY, pa.x, pa.y)) {
         if (pa.type === 'pickup') doPickup(pa.x, pa.y, pa.kind);
         else doPlace(pa.x, pa.y);
         player.pendingAction = null;
@@ -908,7 +813,6 @@ export function initColonyGame() {
     }
 
     if (player.caste === 'worker') {
-      if (player.carryingType === 'nest') { tryPlaceNestAt(x, y); return; }
       if (player.carryingType) { tryPlaceAt(x, y); return; }
       const obs = obstacleAt(x, y);
       const food = foodAt(x, y);
@@ -917,11 +821,6 @@ export function initColonyGame() {
     }
 
     if (player.caste === 'soldier') {
-      if (isDummyAt(x, y) && dummy.hp > 0) {
-        player.attackTarget = dummy;
-        player.pendingAction = null;
-        return;
-      }
       const enemyHit = enemies.find(en => en.hp > 0 && en.tileX === x && en.tileY === y);
       if (enemyHit) {
         player.attackTarget = enemyHit;
@@ -968,7 +867,7 @@ export function initColonyGame() {
     casteRow.innerHTML = '';
     const DESCS = {
       worker: 'Pick up and relocate obstacles and food',
-      soldier: 'Bigger. Attacks the practice dummy',
+      soldier: 'Bigger. Attacks enemies',
       scout: 'Lays a scent trail on the way to anything it finds',
     };
     Object.keys(CASTES).forEach((key) => {
@@ -1010,11 +909,10 @@ export function initColonyGame() {
   switchCasteBtn.addEventListener('click', openCasteOverlay);
   casteCancel.addEventListener('click', () => { casteOverlay.style.display = 'none'; });
 
-  // ---- nest overlay: choose what the nest produces, or relocate it ----
+  // ---- nest overlay: choose what the nest produces ----
   const nestOverlay = document.getElementById('nest-overlay');
   const nestStatusEl = document.getElementById('nest-status');
   const nestRow = document.getElementById('nest-row');
-  const nestRelocateRow = document.getElementById('nest-relocate-row');
   const nestCancel = document.getElementById('nest-cancel');
   const NEST_DESCS = {
     worker: 'Forages food and hauls it back',
@@ -1054,23 +952,6 @@ export function initColonyGame() {
       });
       nestRow.appendChild(card);
     });
-
-    nestRelocateRow.innerHTML = '';
-    if (player.caste === 'worker' && !player.carryingType) {
-      const btn = document.createElement('button');
-      btn.className = 'switch-caste-btn';
-      btn.textContent = 'Relocate nest';
-      btn.addEventListener('click', () => {
-        nestOverlay.style.display = 'none';
-        tryPickupNest();
-      });
-      nestRelocateRow.appendChild(btn);
-    } else {
-      const hint = document.createElement('div');
-      hint.className = 'hint';
-      hint.textContent = 'Switch to Worker (with empty hands) to relocate the nest.';
-      nestRelocateRow.appendChild(hint);
-    }
   }
   function openNestOverlay() {
     renderNestOverlay();
@@ -1162,7 +1043,7 @@ export function initColonyGame() {
     {
       const minX = nest.x - NEST_FOOD_RADIUS, maxX = nest.x + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
       const minY = nest.y - NEST_FOOD_RADIUS, maxY = nest.y + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
-      drawNestRadius(ctx, TILE, canvas.width, canvas.height, camX, camY, nest.carried, minX, maxX, minY, maxY, (tx, ty) => nestDistance(tx, ty) <= NEST_FOOD_RADIUS);
+      drawNestRadius(ctx, TILE, canvas.width, canvas.height, camX, camY, minX, maxX, minY, maxY, (tx, ty) => nestDistance(tx, ty) <= NEST_FOOD_RADIUS);
     }
 
     // scent trail (under everything else on the ground)
@@ -1182,15 +1063,6 @@ export function initColonyGame() {
       ctx.beginPath(); ctx.arc(cx, cy, 1.5, 0, Math.PI * 2); ctx.fill();
     }
 
-    {
-      const sx = dummy.x * TILE - camX, sy = dummy.y * TILE - camY;
-      if (sx > -TILE && sy > -TILE && sx < canvas.width && sy < canvas.height) {
-        drawTile(ctx, TILE, DIRT, sx, sy);
-        if (dummy.hp <= 0) ctx.globalAlpha = 0.35;
-        drawDummy(ctx, TILE, sx, sy, now, dummy.flashUntil, dummy.hp, dummy.maxHp);
-        ctx.globalAlpha = 1;
-      }
-    }
     for (const f of foodItems) {
       const sx = f.x * TILE - camX, sy = f.y * TILE - camY;
       if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height) continue;
@@ -1202,7 +1074,7 @@ export function initColonyGame() {
       ctx.fillRect(ix, iy, size, size);
     }
 
-    if (!nest.carried) {
+    {
       const sx = nest.x * TILE - camX, sy = nest.y * TILE - camY;
       if (sx > -TILE * NEST_SIZE && sy > -TILE * NEST_SIZE && sx < canvas.width && sy < canvas.height) {
         for (const c of nestCells()) drawTile(ctx, TILE, DIRT, c.x * TILE - camX, c.y * TILE - camY);
@@ -1253,7 +1125,7 @@ export function initColonyGame() {
 
     if (hoveredTile && hoveredTile.x >= 0 && hoveredTile.y >= 0 && hoveredTile.x < MAP_W && hoveredTile.y < MAP_H) {
       const hx = hoveredTile.x * TILE - camX, hy = hoveredTile.y * TILE - camY;
-      const blocked = obstacleAt(hoveredTile.x, hoveredTile.y) || isDummyAt(hoveredTile.x, hoveredTile.y) || isNestAt(hoveredTile.x, hoveredTile.y) || isColonistAt(hoveredTile.x, hoveredTile.y);
+      const blocked = obstacleAt(hoveredTile.x, hoveredTile.y) || isNestAt(hoveredTile.x, hoveredTile.y) || isColonistAt(hoveredTile.x, hoveredTile.y);
       ctx.strokeStyle = blocked ? '#8a8478' : '#ffffff';
       ctx.lineWidth = 1;
       ctx.strokeRect(hx + 0.5, hy + 0.5, TILE - 1, TILE - 1);
@@ -1291,8 +1163,7 @@ export function initColonyGame() {
           tryMove(dir);
         } else if (player.caste === 'soldier' && player.attackTarget && player.attackTarget.hp > 0) {
           const t = player.attackTarget;
-          const tx = (t === dummy) ? dummy.x : t.tileX;
-          const ty = (t === dummy) ? dummy.y : t.tileY;
+          const tx = t.tileX, ty = t.tileY;
           if (isAdjacent(player.tileX, player.tileY, tx, ty)) {
             player.dir = dirBetween(player.tileX, player.tileY, tx, ty);
             attemptSoldierAttack(now);
@@ -1313,10 +1184,6 @@ export function initColonyGame() {
           else player.path = [];
         }
       }
-    }
-
-    if (dummy.hp <= 0 && now - dummy.destroyedAt > DUMMY_RESPAWN_MS) {
-      dummy.hp = DUMMY_MAX_HP;
     }
 
     for (const enemy of enemies) updateEnemy(enemy, now);

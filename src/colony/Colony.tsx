@@ -72,7 +72,6 @@ function Colony() {
           <div className="caste-heading">the nest</div>
           <div className="caste-stats" id="nest-status" style={{ maxWidth: '280px', textAlign: 'center', lineHeight: 1.6 }} />
           <div className="caste-row" id="nest-row" />
-          <div className="caste-row" id="nest-relocate-row" />
           <div className="caste-cancel" id="nest-cancel">close</div>
         </div>
       </div>
@@ -84,7 +83,6 @@ function Colony() {
         <span className="legend-item"><span className="swatch" style={{ background: '#8a8478' }} />obstacle</span>
         <span className="legend-item"><span className="swatch" style={{ background: '#e8c44f' }} />food</span>
         <span className="legend-item"><span className="swatch" style={{ background: '#9be89b' }} />scent trail</span>
-        <span className="legend-item"><span className="swatch" style={{ background: '#c9a876' }} />dummy target</span>
         <span className="legend-item"><span className="swatch" style={{ background: '#8b3fae' }} />enemy</span>
         <span className="legend-item"><span className="swatch" style={{ background: '#f2efe6' }} />nest</span>
       </div>
@@ -94,10 +92,10 @@ function Colony() {
         <span className="key">WASD</span> / arrows also work &nbsp;·&nbsp;
         <b>Worker</b>: click an obstacle or food to pick it up, click open ground to set it back down &nbsp;·&nbsp;
         <b>Scout</b>: walk to food and it lays a scent trail along the path it took to get there &nbsp;·&nbsp;
-        <b>Soldier</b>: bigger — click the practice dummy to attack it &nbsp;·&nbsp;
+        <b>Soldier</b>: bigger — click a nearby enemy to attack it &nbsp;·&nbsp;
         <span className="key">C</span> or the button switches your caste anytime, keeping your position &nbsp;·&nbsp;
         scroll or <span className="key">+</span> <span className="key">&minus;</span> to zoom, <span className="key">M</span> for the world map &nbsp;·&nbsp;
-        <b>Nest</b>: click it to choose what to spawn — stand inside its food circle with enough food nearby, which gets consumed; a Worker with empty hands can relocate it &nbsp;·&nbsp;
+        <b>Nest</b>: click it to choose what to spawn — stand inside its food circle with enough food nearby, which gets consumed &nbsp;·&nbsp;
         everything that dies — player, colonist, or enemy — drops a food item behind &nbsp;·&nbsp;
         the world is generated from the seed shown top-right — share it to explore the same cave
       </p>

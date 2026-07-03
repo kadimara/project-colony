@@ -1,6 +1,6 @@
 // @ts-nocheck
 // Low-level canvas drawing primitives: tiles, obstacles, entity squares, HP
-// bars, and the dummy/nest/nest-radius sprites. Each function only takes the
+// bars, and the nest/nest-radius sprites. Each function only takes the
 // canvas context plus the primitive values it needs to draw one thing, so
 // none of it depends on the game's entity/state model.
 import { DIRT, DIRT2 } from './worldgen';
@@ -49,24 +49,6 @@ export function drawHpBar(ctx, TILE, sx, sy, ratio) {
   ctx.fillRect(bx, by, Math.max(0, w * ratio), h);
 }
 
-export function drawDummy(ctx, TILE, sx, sy, now, flashUntil, hp, maxHp) {
-  // a wooden practice post with a simple target ring
-  ctx.fillStyle = '#6e5a3f';
-  ctx.fillRect(sx + TILE / 2 - 1.5, sy + 4, 3, TILE - 6);
-  const cx = sx + TILE / 2, cy = sy + TILE / 2 - 1;
-  ctx.fillStyle = '#c9a876';
-  ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#b23a3a';
-  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#c9a876';
-  ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill();
-  if (flashUntil && now < flashUntil) {
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
-  }
-  if (hp > 0 && hp < maxHp) drawHpBar(ctx, TILE, sx, sy, hp / maxHp);
-}
-
 export function drawNest(ctx, TILE, NEST_SIZE, sx, sy, now, incubating) {
   // a plain white 2x2 block, like a clutch of eggs — sx,sy is the
   // screen position of the nest's top-left tile
@@ -88,8 +70,7 @@ export function drawNest(ctx, TILE, NEST_SIZE, sx, sy, now, incubating) {
 // withinRadius(tx,ty) decides which tiles in the [minX,maxX]x[minY,maxY]
 // box get shaded, keeping this primitive agnostic of how "nest distance" is
 // actually computed.
-export function drawNestRadius(ctx, TILE, canvasWidth, canvasHeight, camX, camY, carried, minX, maxX, minY, maxY, withinRadius) {
-  if (carried) return;
+export function drawNestRadius(ctx, TILE, canvasWidth, canvasHeight, camX, camY, minX, maxX, minY, maxY, withinRadius) {
   ctx.fillStyle = 'rgba(232,196,79,0.10)';
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {
