@@ -35,6 +35,10 @@ function Colony() {
             <span className="stat-label">Colony</span>
             <span className="stat-value" id="stat-population">0</span>
           </div>
+          <div className="stat">
+            <span className="stat-label">Reports</span>
+            <span className="stat-value" id="stat-reports">f0 e0 d0</span>
+          </div>
           <div className="stat seed-control">
             <span className="stat-label">Seed</span>
             <input id="seed-input" className="seed-input" type="text" />
@@ -96,6 +100,7 @@ function Colony() {
         <span className="key">C</span> or the button switches your caste anytime, keeping your position &nbsp;·&nbsp;
         scroll or <span className="key">+</span> <span className="key">&minus;</span> to zoom, <span className="key">M</span> for the world map &nbsp;·&nbsp;
         <b>Nest</b>: click it to choose what to spawn — stand inside its food circle with enough food nearby, which gets consumed &nbsp;·&nbsp;
+        <b>NPC colonists</b>: scouts roam farther and report food/enemies/blocked paths, workers dig out flagged walls and forage reported food, soldiers patrol the nest and respond to nearby scouted threats &nbsp;·&nbsp;
         everything that dies — player, colonist, or enemy — drops a food item behind &nbsp;·&nbsp;
         the world is generated from the seed shown top-right — share it to explore the same cave
       </p>

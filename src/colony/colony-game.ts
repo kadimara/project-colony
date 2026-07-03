@@ -145,6 +145,53 @@ export function initColonyGame() {
     return best;
   }
 
+  // ---- colony reports: scouts publish sightings here so workers/soldiers
+  // can act on things outside their own personal sensing radius. Not a
+  // visibility system — foodItems/enemies/wallSet stay fully global; reports
+  // just let non-scout colonists react to things they haven't personally seen.
+  const REPORT_EXPIRY_MS = 15000;
+  const foodReports = [];   // { x, y, reachable, expiresAt }
+  const digReports = [];    // { x, y, forFoodX, forFoodY, claimedBy, expiresAt }
+  const enemyReports = [];  // { enemy, expiresAt } -- live object reference; enemies move
+
+  function addFoodReport(x, y, reachable, now) {
+    const existing = foodReports.find(r => r.x === x && r.y === y);
+    if (existing) { existing.reachable = reachable; existing.expiresAt = now + REPORT_EXPIRY_MS; return; }
+    foodReports.push({ x, y, reachable, expiresAt: now + REPORT_EXPIRY_MS });
+  }
+  function addDigReport(wx, wy, fx, fy, now) {
+    const existing = digReports.find(r => r.x === wx && r.y === wy);
+    if (existing) { existing.expiresAt = now + REPORT_EXPIRY_MS; return; }
+    digReports.push({ x: wx, y: wy, forFoodX: fx, forFoodY: fy, claimedBy: null, expiresAt: now + REPORT_EXPIRY_MS });
+  }
+  function reportEnemy(enemy, now) {
+    const existing = enemyReports.find(r => r.enemy === enemy);
+    if (existing) { existing.expiresAt = now + REPORT_EXPIRY_MS; return; }
+    enemyReports.push({ enemy, expiresAt: now + REPORT_EXPIRY_MS });
+  }
+  function removeFoodReport(x, y) {
+    const idx = foodReports.findIndex(r => r.x === x && r.y === y);
+    if (idx !== -1) foodReports.splice(idx, 1);
+  }
+  function removeDigReport(x, y) {
+    const idx = digReports.findIndex(r => r.x === x && r.y === y);
+    if (idx !== -1) digReports.splice(idx, 1);
+  }
+  function pruneReports(now) {
+    for (let i = foodReports.length - 1; i >= 0; i--) {
+      const r = foodReports[i];
+      if (now > r.expiresAt || !foodAt(r.x, r.y)) foodReports.splice(i, 1);
+    }
+    for (let i = digReports.length - 1; i >= 0; i--) {
+      const r = digReports[i];
+      if (now > r.expiresAt || !isWall(r.x, r.y)) digReports.splice(i, 1);
+    }
+    for (let i = enemyReports.length - 1; i >= 0; i--) {
+      const r = enemyReports[i];
+      if (now > r.expiresAt || r.enemy.hp <= 0) enemyReports.splice(i, 1);
+    }
+  }
+
   // ---- colonists: autonomous NPC ants belonging to the colony ----
   const COLONIST_MAX_HP = { worker: 10, soldier: 16, scout: 8 };
   const COLONIST_MOVE_DUR = { worker: 260, soldier: 280, scout: 200 };
@@ -156,6 +203,11 @@ export function initColonyGame() {
   const COLONIST_WANDER_MAX_MS = 2600;
   const COLONIST_WANDER_RADIUS = 4;
   const COLONIST_REPATH_MS = 500;
+  const SCOUT_SIGHT_RADIUS = 14;
+  const SCOUT_SCAN_INTERVAL_MS = 700;
+  const SCOUT_WANDER_RADIUS = 9;
+  const SOLDIER_DEFENSE_PERIMETER_RADIUS = 22;
+  const SOLDIER_PATROL_RADIUS = 10;
   const colonists = [];
   function isColonistAt(x, y) { return colonists.some(c => c.hp > 0 && c.tileX === x && c.tileY === y); }
 
@@ -200,9 +252,9 @@ export function initColonyGame() {
       dir: 'down', moving: false, moveStart: 0, moveDur: COLONIST_MOVE_DUR[caste],
       fromX: x, fromY: y, toX: x, toY: y,
       hp: COLONIST_MAX_HP[caste], maxHp: COLONIST_MAX_HP[caste],
-      state: 'wander', path: [], carryingFood: false, forageTarget: null,
+      state: 'wander', path: [], carryingFood: false, forageTarget: null, digTarget: null,
       nextWanderAt: performance.now() + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS),
-      nextRepathAt: 0, lastAttack: 0, aggroTarget: null, aggroUntil: 0, flashUntil: 0,
+      nextRepathAt: 0, nextScanAt: 0, lastAttack: 0, aggroTarget: null, aggroUntil: 0, flashUntil: 0,
     };
   }
   function spawnColonist(caste) {
@@ -292,6 +344,17 @@ export function initColonyGame() {
       if (en.hp <= 0) continue;
       worldCtx.fillRect(en.tileX * WORLD_TILE - 1, en.tileY * WORLD_TILE - 1, WORLD_TILE + 2, WORLD_TILE + 2);
     }
+    worldCtx.lineWidth = 1;
+    worldCtx.strokeStyle = '#e8c44f';
+    for (const r of foodReports) worldCtx.strokeRect(r.x * WORLD_TILE - 1, r.y * WORLD_TILE - 1, WORLD_TILE + 2, WORLD_TILE + 2);
+    worldCtx.strokeStyle = '#8b3fae';
+    for (const r of enemyReports) {
+      if (r.enemy.hp <= 0) continue;
+      worldCtx.strokeRect(r.enemy.tileX * WORLD_TILE - 2, r.enemy.tileY * WORLD_TILE - 2, WORLD_TILE + 4, WORLD_TILE + 4);
+    }
+    worldCtx.strokeStyle = '#e05c5c';
+    for (const r of digReports) worldCtx.strokeRect(r.x * WORLD_TILE - 1, r.y * WORLD_TILE - 1, WORLD_TILE + 2, WORLD_TILE + 2);
+
     worldCtx.fillStyle = '#f2efe6';
     worldCtx.fillRect(nest.x * WORLD_TILE - 1, nest.y * WORLD_TILE - 1, WORLD_TILE * 2 + 2, WORLD_TILE * 2 + 2);
     for (const c of colonists) {
@@ -624,13 +687,85 @@ export function initColonyGame() {
     }
     return best;
   }
+
+  // ---- scout: scans its surroundings for food/enemies and publishes colony
+  // reports so workers/soldiers can act on things outside their own radius ----
+  // picks a wall bordering the food that a colonist can actually walk up to
+  // from the nest today — picking by raw distance-to-nest alone can name a
+  // wall that's itself sealed off behind other walls, which would leave a
+  // worker with a dig target it can never reach
+  function pickDigTargetForFood(fx, fy) {
+    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    let best = null, bestDist = Infinity;
+    for (const [dx, dy] of dirs) {
+      const wx = fx + dx, wy = fy + dy;
+      if (!isWall(wx, wy)) continue;
+      const approachable = isAdjacent(nest.x, nest.y, wx, wy) || bfsToAdjacent(nest.x, nest.y, wx, wy, walkable).length > 0;
+      if (!approachable) continue;
+      const d = nestDistance(wx, wy);
+      if (d < bestDist) { bestDist = d; best = { x: wx, y: wy }; }
+    }
+    return best;
+  }
+  function scanForReports(x, y, radius, now) {
+    for (const f of foodItems) {
+      if (Math.hypot(f.x - x, f.y - y) > radius) continue;
+      const existing = foodReports.find(r => r.x === f.x && r.y === f.y);
+      if (existing) { existing.expiresAt = now + REPORT_EXPIRY_MS; continue; }
+      const reachable = isAdjacent(nest.x, nest.y, f.x, f.y) || bfsToAdjacent(nest.x, nest.y, f.x, f.y, walkable).length > 0;
+      if (reachable) {
+        addFoodReport(f.x, f.y, true, now);
+      } else {
+        addFoodReport(f.x, f.y, false, now);
+        const wall = pickDigTargetForFood(f.x, f.y);
+        if (wall) addDigReport(wall.x, wall.y, f.x, f.y, now);
+      }
+    }
+    for (const en of enemies) {
+      if (en.hp <= 0) continue;
+      if (Math.hypot(en.tileX - x, en.tileY - y) > radius) continue;
+      if (hasLineOfSight(x, y, en.tileX, en.tileY, isWall)) reportEnemy(en, now);
+    }
+  }
+
   function updateColonist(colonist, now) {
     if (colonist.hp <= 0) return;
     if (colonist.moving) { updateActorAnimation(colonist, now); return; }
 
+    if (colonist.caste === 'scout') {
+      if (now >= colonist.nextScanAt) {
+        scanForReports(colonist.tileX, colonist.tileY, SCOUT_SIGHT_RADIUS, now);
+        colonist.nextScanAt = now + SCOUT_SCAN_INTERVAL_MS;
+      }
+      if (now >= colonist.nextWanderAt && colonist.path.length === 0) {
+        const tx = colonist.tileX + Math.floor(Math.random() * (SCOUT_WANDER_RADIUS * 2 + 1)) - SCOUT_WANDER_RADIUS;
+        const ty = colonist.tileY + Math.floor(Math.random() * (SCOUT_WANDER_RADIUS * 2 + 1)) - SCOUT_WANDER_RADIUS;
+        if (walkable(tx, ty)) {
+          const p = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
+          if (p.length) colonist.path = p;
+        }
+        colonist.nextWanderAt = now + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS);
+      }
+      if (colonist.path.length) {
+        const next = colonist.path.shift();
+        if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+        else colonist.path = [];
+      }
+      return;
+    }
+
     if (colonist.caste === 'soldier') {
       if (colonist.aggroTarget && colonist.aggroTarget.hp <= 0) colonist.aggroTarget = null;
       if (!colonist.aggroTarget) colonist.aggroTarget = nearestEnemyTo(colonist.tileX, colonist.tileY, COLONIST_AGGRO_RADIUS);
+      if (!colonist.aggroTarget) {
+        let best = null, bestDist = Infinity;
+        for (const r of enemyReports) {
+          if (r.enemy.hp <= 0) continue;
+          const d = nestDistance(r.enemy.tileX, r.enemy.tileY);
+          if (d <= SOLDIER_DEFENSE_PERIMETER_RADIUS && d < bestDist) { best = r.enemy; bestDist = d; }
+        }
+        colonist.aggroTarget = best;
+      }
       if (colonist.aggroTarget) {
         const t = colonist.aggroTarget;
         if (isAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY)) {
@@ -646,8 +781,13 @@ export function initColonyGame() {
           const next = colonist.path.shift();
           if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
           else colonist.path = [];
+          return;
         }
-        return;
+        // path.length is 0 here only after a repath attempt just failed (the
+        // condition above always retries when empty) — the target is
+        // genuinely unreachable right now, so give up rather than freezing
+        // in place; fall through to patrol/wander instead of returning
+        colonist.aggroTarget = null;
       }
     }
 
@@ -673,14 +813,56 @@ export function initColonyGame() {
           return;
         }
       }
+      // dig out a wall a scout has flagged as blocking a reported food item —
+      // takes priority over foraging once claimed, since it's colony-critical
+      if (colonist.digTarget && !isWall(colonist.digTarget.x, colonist.digTarget.y)) colonist.digTarget = null;
+      if (!colonist.digTarget) {
+        let best = null, bestDist = Infinity;
+        for (const r of digReports) {
+          if (r.claimedBy && r.claimedBy !== colonist && r.claimedBy.hp > 0 && colonists.includes(r.claimedBy)) continue;
+          const d = Math.hypot(r.x - colonist.tileX, r.y - colonist.tileY);
+          if (d < bestDist) { bestDist = d; best = r; }
+        }
+        if (best) { best.claimedBy = colonist; colonist.digTarget = best; colonist.path = []; }
+      }
+      if (colonist.digTarget) {
+        const t = colonist.digTarget;
+        if (isAdjacent(colonist.tileX, colonist.tileY, t.x, t.y)) {
+          colonist.dir = dirBetween(colonist.tileX, colonist.tileY, t.x, t.y);
+          wallSet.delete(t.x + ',' + t.y);
+          spawnFloatingText(colonist, 'cleared path', '#b0aaa0');
+          removeDigReport(t.x, t.y);
+          removeFoodReport(t.forFoodX, t.forFoodY);
+          colonist.digTarget = null;
+          colonist.path = [];
+          return;
+        }
+        if (colonist.path.length === 0) colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, t.x, t.y, walkable);
+        if (colonist.path.length) {
+          const next = colonist.path.shift();
+          if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+          else colonist.path = [];
+          return;
+        }
+        // genuinely unreachable from here — drop the claim and the report so
+        // it doesn't dangle forever or keep drawing colonists toward a wall
+        // they can never stand next to (rare: dynamic occupancy can also
+        // transiently block the only approach, in which case it'll just get
+        // re-flagged by a future scout pass)
+        removeDigReport(t.x, t.y);
+        colonist.digTarget = null;
+      }
       // not carrying: look for food outside the nest's radius (no point
-      // hauling food that's already close enough to fuel production)
+      // hauling food that's already close enough to fuel production), either
+      // within personal forage range or flagged reachable by a scout report
       if (!colonist.forageTarget || !foodAt(colonist.forageTarget.x, colonist.forageTarget.y)) {
         let best = null, bestDist = Infinity;
         for (const f of foodItems) {
           if (nestDistance(f.x, f.y) <= NEST_FOOD_RADIUS) continue;
           const d = Math.hypot(f.x - colonist.tileX, f.y - colonist.tileY);
-          if (d <= COLONIST_FORAGE_RADIUS && d < bestDist) { best = f; bestDist = d; }
+          const withinOwnRadius = d <= COLONIST_FORAGE_RADIUS;
+          const isReportedReachable = foodReports.some(r => r.x === f.x && r.y === f.y && r.reachable);
+          if ((withinOwnRadius || isReportedReachable) && d < bestDist) { best = f; bestDist = d; }
         }
         colonist.forageTarget = best;
         colonist.path = [];
@@ -706,10 +888,16 @@ export function initColonyGame() {
       }
     }
 
-    // wander (default / fallback for both castes when there's nothing to do)
+    // wander (fallback for worker/soldier when there's nothing to do — scout
+    // has its own branch above and always returns before reaching this).
+    // Soldiers patrol around the nest instead of their own position, so idle
+    // defenders stay colony-local rather than drifting off.
     if (now >= colonist.nextWanderAt && colonist.path.length === 0) {
-      const tx = colonist.tileX + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
-      const ty = colonist.tileY + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
+      const cx = colonist.caste === 'soldier' ? nest.x : colonist.tileX;
+      const cy = colonist.caste === 'soldier' ? nest.y : colonist.tileY;
+      const radius = colonist.caste === 'soldier' ? SOLDIER_PATROL_RADIUS : COLONIST_WANDER_RADIUS;
+      const tx = cx + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+      const ty = cy + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
       if (walkable(tx, ty)) {
         const p = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
         if (p.length) colonist.path = p;
@@ -779,6 +967,7 @@ export function initColonyGame() {
         if (player.pathHistory.length > 400) player.pathHistory.shift();
       }
       if (foodAt(player.tileX, player.tileY)) layScentTrail();
+      scanForReports(player.tileX, player.tileY, SCOUT_SIGHT_RADIUS, now);
     }
   }
 
@@ -839,12 +1028,14 @@ export function initColonyGame() {
   const statCarry = document.getElementById('stat-carry');
   const statTrail = document.getElementById('stat-trail');
   const statPopulation = document.getElementById('stat-population');
+  const statReports = document.getElementById('stat-reports');
   function updateHud() {
     statCaste.textContent = player.caste ? CASTES[player.caste].name : 'none';
     statHp.textContent = player.hp + '/' + player.maxHp;
     statCarry.textContent = player.carryingType || 'nothing';
     statTrail.textContent = scentTrail.size;
     statPopulation.textContent = colonists.length + '/' + MAX_COLONISTS;
+    statReports.textContent = 'f' + foodReports.length + ' e' + enemyReports.length + ' d' + digReports.length;
   }
 
   const toastEl = document.getElementById('toast');
@@ -866,9 +1057,9 @@ export function initColonyGame() {
   function renderCasteCards() {
     casteRow.innerHTML = '';
     const DESCS = {
-      worker: 'Pick up and relocate obstacles and food',
-      soldier: 'Bigger. Attacks enemies',
-      scout: 'Lays a scent trail on the way to anything it finds',
+      worker: 'Pick up and relocate obstacles and food, or dig out walls a scout has flagged',
+      soldier: 'Bigger. Defends the nest and responds to scouted threats nearby',
+      scout: 'Explores farther and reports food, threats, and blocked paths to the colony',
     };
     Object.keys(CASTES).forEach((key) => {
       const def = CASTES[key];
@@ -915,9 +1106,9 @@ export function initColonyGame() {
   const nestRow = document.getElementById('nest-row');
   const nestCancel = document.getElementById('nest-cancel');
   const NEST_DESCS = {
-    worker: 'Forages food and hauls it back',
-    soldier: 'Defends the colony from enemies',
-    scout: 'Explores and lays scent trails',
+    worker: 'Forages food, hauls it back, and clears walls scouts flag as blocking',
+    soldier: 'Patrols near the nest and moves to intercept scouted threats',
+    scout: 'Roams farther out, spotting food and enemies for the colony',
   };
   function renderNestOverlay() {
     const available = countFoodNearNest();
@@ -1189,6 +1380,8 @@ export function initColonyGame() {
     for (const enemy of enemies) updateEnemy(enemy, now);
     for (const colonist of colonists) updateColonist(colonist, now);
     updateNest(now);
+    pruneReports(now);
+    updateHud();
 
     render(now);
     if (mapOpen) renderWorldMap();
