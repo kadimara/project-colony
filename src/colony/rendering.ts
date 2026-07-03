@@ -88,8 +88,7 @@ export function drawNest(ctx, TILE, NEST_SIZE, sx, sy, now, incubating) {
 // withinRadius(tx,ty) decides which tiles in the [minX,maxX]x[minY,maxY]
 // box get shaded, keeping this primitive agnostic of how "nest distance" is
 // actually computed.
-export function drawNestRadius(ctx, TILE, canvasWidth, canvasHeight, camX, camY, carried, minX, maxX, minY, maxY, withinRadius) {
-  if (carried) return;
+export function drawNestRadius(ctx, TILE, canvasWidth, canvasHeight, camX, camY, minX, maxX, minY, maxY, withinRadius) {
   ctx.fillStyle = 'rgba(232,196,79,0.10)';
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {
