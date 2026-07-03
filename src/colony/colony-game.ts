@@ -2,85 +2,22 @@
 // Ported as-is from the original colony.html prototype: a self-contained
 // canvas game that queries the DOM by id. initColonyGame() is guarded so
 // it only ever wires itself up once, even under dev double-invoke.
+//
+// World generation, pathfinding, and low-level canvas drawing live in their
+// own modules; this file owns entity/game state, AI, DOM/HUD wiring, input
+// handling, and the render/tick loops that compose everything together.
+import { mulberry32, buildMap, buildWalls, DIRT } from './worldgen';
+import { isAdjacent, findPath, bfsToAdjacent, hasLineOfSight } from './pathfinding';
+import { drawTile, drawObstacle, drawSquareEntity, drawHpBar, drawDummy, drawNest, drawNestRadius } from './rendering';
+
 let started = false;
 
 export function initColonyGame() {
   if (started) return;
   started = true;
 
-  // ---- seeded RNG so the same seed always reproduces the same cave ----
-  function mulberry32(seed) {
-    return function () {
-      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
   let seed = 393845991;
   let rng = mulberry32(seed);
-
-  // ---- 2D simplex noise (public-domain reference algorithm, seeded permutation) ----
-  function makeSimplex2D(noiseSeed) {
-    const noiseRng = mulberry32(noiseSeed);
-    const p = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) p[i] = i;
-    for (let i = 255; i > 0; i--) {
-      const j = Math.floor(noiseRng() * (i + 1));
-      const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
-    }
-    const perm = new Uint8Array(512);
-    const permMod12 = new Uint8Array(512);
-    for (let i = 0; i < 512; i++) {
-      perm[i] = p[i & 255];
-      permMod12[i] = perm[i] % 12;
-    }
-    const grad3 = [
-      [1,1],[-1,1],[1,-1],[-1,-1],
-      [1,0],[-1,0],[1,0],[-1,0],
-      [0,1],[0,-1],[0,1],[0,-1],
-    ];
-    const F2 = 0.5 * (Math.sqrt(3) - 1);
-    const G2 = (3 - Math.sqrt(3)) / 6;
-    return function noise2D(xin, yin) {
-      let n0 = 0, n1 = 0, n2 = 0;
-      const s = (xin + yin) * F2;
-      const i = Math.floor(xin + s);
-      const j = Math.floor(yin + s);
-      const t = (i + j) * G2;
-      const X0 = i - t, Y0 = j - t;
-      const x0 = xin - X0, y0 = yin - Y0;
-      let i1, j1;
-      if (x0 > y0) { i1 = 1; j1 = 0; } else { i1 = 0; j1 = 1; }
-      const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
-      const x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
-      const ii = i & 255, jj = j & 255;
-      const gi0 = permMod12[ii + perm[jj]];
-      const gi1 = permMod12[ii + i1 + perm[jj + j1]];
-      const gi2 = permMod12[ii + 1 + perm[jj + 1]];
-      let t0 = 0.5 - x0 * x0 - y0 * y0;
-      if (t0 >= 0) { t0 *= t0; n0 = t0 * t0 * (grad3[gi0][0] * x0 + grad3[gi0][1] * y0); }
-      let t1 = 0.5 - x1 * x1 - y1 * y1;
-      if (t1 >= 0) { t1 *= t1; n1 = t1 * t1 * (grad3[gi1][0] * x1 + grad3[gi1][1] * y1); }
-      let t2 = 0.5 - x2 * x2 - y2 * y2;
-      if (t2 >= 0) { t2 *= t2; n2 = t2 * t2 * (grad3[gi2][0] * x2 + grad3[gi2][1] * y2); }
-      return 70 * (n0 + n1 + n2); // ~[-1, 1]
-    };
-  }
-  function fbm(noise2D, x, y, octaves, persistence, lacunarity, scale) {
-    let total = 0, amplitude = 1, frequency = 1 / scale, maxValue = 0;
-    for (let o = 0; o < octaves; o++) {
-      total += noise2D(x * frequency, y * frequency) * amplitude;
-      maxValue += amplitude;
-      amplitude *= persistence;
-      frequency *= lacunarity;
-    }
-    return total / maxValue;
-  }
-  // preset tuned in the map generator tool (320x320) — scale is adjusted
-  // proportionally (60 * 100/320) since this game's map is smaller, which
-  // keeps the same pocket density/frequency rather than flattening it out
-  const CAVE_PRESET = { scale: 19, octaves: 4, persistence: 0.8, lacunarity: 2.0, threshold: -0.16 };
 
   const TILE = 16;
   let VP_W = 17, VP_H = 12;
@@ -119,22 +56,7 @@ export function initColonyGame() {
   });
 
   // ---- tiles (ground only — obstacles are a separate movable list) ----
-  const DIRT = 0, DIRT2 = 1;
-  const COLORS = {
-    [DIRT]:  ['#4a331d', '#402c19'],
-    [DIRT2]: ['#523823', '#472f1d'],
-  };
-
-  function buildMap() {
-    const map = [];
-    for (let y = 0; y < MAP_H; y++) {
-      const row = [];
-      for (let x = 0; x < MAP_W; x++) row.push((x + y) % 5 === 0 ? DIRT2 : DIRT);
-      map.push(row);
-    }
-    return map;
-  }
-  const map = buildMap();
+  const map = buildMap(MAP_W, MAP_H);
 
   function terrainWalkable(x, y) {
     if (x < 0 || y < 0 || y >= map.length || x >= map[0].length) return false;
@@ -151,31 +73,7 @@ export function initColonyGame() {
   // ---- cave walls & food (walls are the same pickup-able block Worker already handles) ----
   const SPAWN_X = Math.floor(MAP_W / 2), SPAWN_Y = Math.floor(MAP_H / 2);
 
-  function buildWalls() {
-    const walls = new Set();
-    const noise2D = makeSimplex2D(seed);
-    const { scale, octaves, persistence, lacunarity, threshold } = CAVE_PRESET;
-    // direct 1:1 mapping: one noise sample per tile. Walkable below the
-    // threshold (matches the map generator tool's "walkable below" convention),
-    // solid at or above it.
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        const n = fbm(noise2D, x, y, octaves, persistence, lacunarity, scale);
-        if (n >= threshold) walls.add(x + ',' + y);
-      }
-    }
-    // safety carve: guarantee the spawn point and its immediate surroundings
-    // are walkable, so the player never spawns sealed inside solid rock
-    const carve = (x, y) => { if (x > 0 && y > 0 && x < MAP_W - 1 && y < MAP_H - 1) walls.delete(x + ',' + y); };
-    const SPAWN_SAFETY_R = 3;
-    for (let y = SPAWN_Y - SPAWN_SAFETY_R; y <= SPAWN_Y + SPAWN_SAFETY_R; y++) {
-      for (let x = SPAWN_X - SPAWN_SAFETY_R; x <= SPAWN_X + SPAWN_SAFETY_R; x++) {
-        if (Math.abs(x - SPAWN_X) + Math.abs(y - SPAWN_Y) <= SPAWN_SAFETY_R) carve(x, y);
-      }
-    }
-    return walls;
-  }
-  let wallSet = buildWalls();
+  let wallSet = buildWalls(seed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
   function isWall(x, y) { return wallSet.has(x + ',' + y); }
   function obstacleAt(x, y) { return isWall(x, y) ? { x, y } : null; }
 
@@ -344,7 +242,7 @@ export function initColonyGame() {
     rng = mulberry32(seed);
     seedInput.value = seed;
 
-    wallSet = buildWalls();
+    wallSet = buildWalls(seed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
     foodItems.length = 0;
     for (let i = 0; i < 40; i++) { const s = randomOpenTile(); if (s) foodItems.push(s); }
     const dSpot = randomOpenTile();
@@ -377,9 +275,6 @@ export function initColonyGame() {
 
   function walkable(x, y) {
     return terrainWalkable(x, y) && !isWall(x, y) && !isDummyAt(x, y) && !isEnemyAt(x, y) && !isNestAt(x, y) && !isColonistAt(x, y) && !isPlayerAt(x, y);
-  }
-  function isAdjacent(ax, ay, bx, by) {
-    return Math.abs(ax - bx) + Math.abs(ay - by) === 1;
   }
 
   // ---- scent trail ----
@@ -528,64 +423,6 @@ export function initColonyGame() {
     }
   }
 
-  function findPath(startX, startY, goalX, goalY) {
-    if (!walkable(goalX, goalY)) return [];
-    if (startX === goalX && startY === goalY) return [];
-    const key = (x, y) => x + ',' + y;
-    const visited = new Set([key(startX, startY)]);
-    const cameFrom = new Map();
-    const queue = [{ x: startX, y: startY }]; let head = 0;
-    const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
-    while (head < queue.length) {
-      const cur = queue[head++];
-      if (cur.x === goalX && cur.y === goalY) break;
-      for (const [dx, dy] of dirs) {
-        const nx = cur.x + dx, ny = cur.y + dy, k = key(nx, ny);
-        if (visited.has(k) || !walkable(nx, ny)) continue;
-        visited.add(k); cameFrom.set(k, cur); queue.push({ x: nx, y: ny });
-      }
-    }
-    if (!visited.has(key(goalX, goalY))) return [];
-    const path = []; let cur = { x: goalX, y: goalY };
-    while (!(cur.x === startX && cur.y === startY)) {
-      path.push(cur); cur = cameFrom.get(key(cur.x, cur.y));
-      if (!cur) return [];
-    }
-    path.reverse();
-    return path;
-  }
-
-  // BFS to the nearest tile adjacent to (goalX,goalY) — used for obstacles,
-  // which you can never stand on top of.
-  function bfsToAdjacent(startX, startY, goalX, goalY) {
-    const isGoal = (x, y) => isAdjacent(x, y, goalX, goalY);
-    if (isGoal(startX, startY)) return [];
-    const key = (x, y) => x + ',' + y;
-    const visited = new Set([key(startX, startY)]);
-    const cameFrom = new Map();
-    const queue = [{ x: startX, y: startY }]; let head = 0;
-    const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
-    let goalNode = null;
-    while (head < queue.length && !goalNode) {
-      const cur = queue[head++];
-      for (const [dx, dy] of dirs) {
-        const nx = cur.x + dx, ny = cur.y + dy, k = key(nx, ny);
-        if (visited.has(k) || !walkable(nx, ny)) continue;
-        visited.add(k); cameFrom.set(k, cur);
-        if (isGoal(nx, ny)) { goalNode = { x: nx, y: ny }; break; }
-        queue.push({ x: nx, y: ny });
-      }
-    }
-    if (!goalNode) return [];
-    const path = []; let cur = goalNode;
-    while (!(cur.x === startX && cur.y === startY)) {
-      path.push(cur); cur = cameFrom.get(key(cur.x, cur.y));
-      if (!cur) return [];
-    }
-    path.reverse();
-    return path;
-  }
-
   // ---- worker: pick up / place obstacles and food ----
   function doPickup(x, y, kind) {
     if (kind === 'obstacle') {
@@ -612,7 +449,7 @@ export function initColonyGame() {
     if (isAdjacent(player.tileX, player.tileY, x, y)) {
       doPickup(x, y, kind);
     } else {
-      const path = bfsToAdjacent(player.tileX, player.tileY, x, y);
+      const path = bfsToAdjacent(player.tileX, player.tileY, x, y, walkable);
       if (path.length) { player.pendingAction = { type: 'pickup', x, y, kind }; player.path = path; }
     }
   }
@@ -621,7 +458,7 @@ export function initColonyGame() {
     if (isAdjacent(player.tileX, player.tileY, x, y)) {
       doPlace(x, y);
     } else {
-      const path = bfsToAdjacent(player.tileX, player.tileY, x, y);
+      const path = bfsToAdjacent(player.tileX, player.tileY, x, y, walkable);
       if (path.length) { player.pendingAction = { type: 'place', x, y }; player.path = path; }
     }
   }
@@ -644,7 +481,7 @@ export function initColonyGame() {
   function pathToNearestNestCell(cells) {
     let best = null, bestLen = Infinity;
     for (const c of cells) {
-      const p = bfsToAdjacent(player.tileX, player.tileY, c.x, c.y);
+      const p = bfsToAdjacent(player.tileX, player.tileY, c.x, c.y, walkable);
       if (p.length && p.length < bestLen) { best = p; bestLen = p.length; }
     }
     return best;
@@ -757,22 +594,6 @@ export function initColonyGame() {
   }
 
   // ---- enemy AI: wander, then chase + attack on sight ----
-  function hasLineOfSight(ax, ay, bx, by) {
-    let x0 = ax, y0 = ay;
-    const x1 = bx, y1 = by;
-    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    let err = dx + dy;
-    while (true) {
-      if (!(x0 === ax && y0 === ay) && !(x0 === x1 && y0 === y1) && isWall(x0, y0)) return false;
-      if (x0 === x1 && y0 === y1) break;
-      const e2 = 2 * err;
-      if (e2 >= dy) { err += dy; x0 += sx; }
-      if (e2 <= dx) { err += dx; y0 += sy; }
-    }
-    return true;
-  }
-
   function damageColonist(colonist, amount, now) {
     if (colonist.hp <= 0) return;
     colonist.hp = Math.max(0, colonist.hp - amount);
@@ -787,14 +608,14 @@ export function initColonyGame() {
     let best = null, bestDist = Infinity;
     if (player.caste && player.hp > 0) {
       const d = Math.hypot(player.tileX - fromX, player.tileY - fromY);
-      if (d <= radius && hasLineOfSight(fromX, fromY, player.tileX, player.tileY)) {
+      if (d <= radius && hasLineOfSight(fromX, fromY, player.tileX, player.tileY, isWall)) {
         best = { kind: 'player', ref: player }; bestDist = d;
       }
     }
     for (const c of colonists) {
       if (c.hp <= 0) continue;
       const d = Math.hypot(c.tileX - fromX, c.tileY - fromY);
-      if (d <= radius && d < bestDist && hasLineOfSight(fromX, fromY, c.tileX, c.tileY)) {
+      if (d <= radius && d < bestDist && hasLineOfSight(fromX, fromY, c.tileX, c.tileY, isWall)) {
         best = { kind: 'colonist', ref: c }; bestDist = d;
       }
     }
@@ -840,7 +661,7 @@ export function initColonyGame() {
         return;
       }
       if (now >= enemy.nextRepathAt || enemy.path.length === 0) {
-        enemy.path = bfsToAdjacent(enemy.tileX, enemy.tileY, pos.x, pos.y);
+        enemy.path = bfsToAdjacent(enemy.tileX, enemy.tileY, pos.x, pos.y, walkable);
         enemy.nextRepathAt = now + ENEMY_REPATH_MS;
       }
       if (enemy.path.length) {
@@ -856,7 +677,7 @@ export function initColonyGame() {
       const tx = enemy.tileX + Math.floor(Math.random() * (ENEMY_WANDER_RADIUS * 2 + 1)) - ENEMY_WANDER_RADIUS;
       const ty = enemy.tileY + Math.floor(Math.random() * (ENEMY_WANDER_RADIUS * 2 + 1)) - ENEMY_WANDER_RADIUS;
       if (walkable(tx, ty)) {
-        const p = findPath(enemy.tileX, enemy.tileY, tx, ty);
+        const p = findPath(enemy.tileX, enemy.tileY, tx, ty, walkable);
         if (p.length) enemy.path = p;
       }
       enemy.nextWanderAt = now + ENEMY_WANDER_MIN_MS + Math.random() * (ENEMY_WANDER_MAX_MS - ENEMY_WANDER_MIN_MS);
@@ -904,7 +725,7 @@ export function initColonyGame() {
           return;
         }
         if (now >= colonist.nextRepathAt || colonist.path.length === 0) {
-          colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY);
+          colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY, walkable);
           colonist.nextRepathAt = now + COLONIST_REPATH_MS;
         }
         if (colonist.path.length) {
@@ -927,7 +748,7 @@ export function initColonyGame() {
         } else {
           if (colonist.path.length === 0) {
             const spot = randomOpenTileNear(nest.x, nest.y, NEST_FOOD_RADIUS - 1);
-            const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y) : [];
+            const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable) : [];
             if (p.length) colonist.path = p; else { colonist.carryingFood = false; }
           }
           if (colonist.path.length) {
@@ -960,7 +781,7 @@ export function initColonyGame() {
           return;
         }
         if (colonist.path.length === 0) {
-          colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, f.x, f.y);
+          colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, f.x, f.y, walkable);
         }
         if (colonist.path.length) {
           const next = colonist.path.shift();
@@ -976,7 +797,7 @@ export function initColonyGame() {
       const tx = colonist.tileX + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
       const ty = colonist.tileY + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
       if (walkable(tx, ty)) {
-        const p = findPath(colonist.tileX, colonist.tileY, tx, ty);
+        const p = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
         if (p.length) colonist.path = p;
       }
       colonist.nextWanderAt = now + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS);
@@ -1109,7 +930,7 @@ export function initColonyGame() {
       }
     }
 
-    const path = findPath(player.tileX, player.tileY, x, y);
+    const path = findPath(player.tileX, player.tileY, x, y, walkable);
     if (path.length) { player.pendingAction = null; player.attackTarget = null; player.path = path; }
   });
 
@@ -1320,91 +1141,6 @@ export function initColonyGame() {
   });
 
   // ---- drawing ----
-  function drawTile(type, sx, sy) {
-    const pair = COLORS[type] || COLORS[DIRT];
-    ctx.fillStyle = pair[0];
-    ctx.fillRect(sx, sy, TILE, TILE);
-    ctx.fillStyle = pair[1];
-    ctx.fillRect(sx, sy, TILE / 2, TILE / 2);
-    ctx.fillRect(sx + TILE / 2, sy + TILE / 2, TILE / 2, TILE / 2);
-  }
-  function drawObstacle(sx, sy) {
-    drawTile(DIRT, sx, sy);
-    const m1 = Math.max(1, Math.round(TILE * 0.09));
-    const m2 = Math.max(1, Math.round(TILE * 0.16));
-    ctx.fillStyle = '#5e594e';
-    ctx.fillRect(sx + m1, sy + m1, TILE - m1 * 2, TILE - m1 * 2);
-    ctx.fillStyle = '#8a8478';
-    ctx.fillRect(sx + m2, sy + m2, TILE - m2 * 2, TILE - m2 * 2);
-  }
-  function drawSquareEntity(sx, sy, fill, edge, inset) {
-    const size = TILE - inset * 2;
-    ctx.fillStyle = edge;
-    ctx.fillRect(sx + inset - 1, sy + inset - 1, size + 2, size + 2);
-    ctx.fillStyle = fill;
-    ctx.fillRect(sx + inset, sy + inset, size, size);
-  }
-  function drawHpBar(sx, sy, ratio) {
-    const margin = Math.max(1, Math.round(TILE * 0.16));
-    const w = TILE - margin * 2, h = Math.max(1, Math.round(TILE * 0.125));
-    const bx = sx + margin, by = sy - Math.round(TILE * 0.25);
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
-    let fill = '#4caf50';
-    if (ratio <= 0.25) fill = '#e53935'; else if (ratio <= 0.5) fill = '#f5a623';
-    ctx.fillStyle = fill;
-    ctx.fillRect(bx, by, Math.max(0, w * ratio), h);
-  }
-  function drawDummy(sx, sy, now) {
-    // a wooden practice post with a simple target ring
-    ctx.fillStyle = '#6e5a3f';
-    ctx.fillRect(sx + TILE / 2 - 1.5, sy + 4, 3, TILE - 6);
-    const cx = sx + TILE / 2, cy = sy + TILE / 2 - 1;
-    ctx.fillStyle = '#c9a876';
-    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#b23a3a';
-    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#c9a876';
-    ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill();
-    if (dummy.flashUntil && now < dummy.flashUntil) {
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
-    }
-    if (dummy.hp > 0 && dummy.hp < dummy.maxHp) drawHpBar(sx, sy, dummy.hp / dummy.maxHp);
-  }
-  function drawNest(sx, sy, now) {
-    // a plain white 2x2 block, like a clutch of eggs — sx,sy is the
-    // screen position of the nest's top-left tile
-    const w = TILE * NEST_SIZE, h = TILE * NEST_SIZE, inset = 4;
-    ctx.fillStyle = '#8a8478';
-    ctx.fillRect(sx + inset - 1, sy + inset - 1, w - inset * 2 + 2, h - inset * 2 + 2);
-    ctx.fillStyle = '#f2efe6';
-    ctx.fillRect(sx + inset, sy + inset, w - inset * 2, h - inset * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(sx + inset + 2, sy + inset + 2, (w - inset * 2) * 0.4, (h - inset * 2) * 0.4);
-    if (nest.incubating) {
-      const pulse = 0.5 + 0.5 * Math.sin(now / 220);
-      ctx.fillStyle = 'rgba(217,119,87,' + (0.15 + pulse * 0.3) + ')';
-      ctx.fillRect(sx + inset, sy + inset, w - inset * 2, h - inset * 2);
-    }
-  }
-
-  // shows which tiles are close enough to the nest for food to fuel a spawn
-  function drawNestRadius(camX, camY) {
-    if (nest.carried) return;
-    const minX = nest.x - NEST_FOOD_RADIUS, maxX = nest.x + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
-    const minY = nest.y - NEST_FOOD_RADIUS, maxY = nest.y + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
-    ctx.fillStyle = 'rgba(232,196,79,0.10)';
-    for (let ty = minY; ty <= maxY; ty++) {
-      for (let tx = minX; tx <= maxX; tx++) {
-        if (nestDistance(tx, ty) > NEST_FOOD_RADIUS) continue;
-        const sx = tx * TILE - camX, sy = ty * TILE - camY;
-        if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height) continue;
-        ctx.fillRect(sx, sy, TILE, TILE);
-      }
-    }
-  }
-
   function render(now) {
     const camX = getClampedCamX(), camY = getClampedCamY();
     ctx.fillStyle = '#0a0806';
@@ -1417,13 +1153,17 @@ export function initColonyGame() {
         const mx = startCol + c, my = startRow + r;
         if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) continue;
         const sx = offX + c * TILE, sy = offY + r * TILE;
-        if (isWall(mx, my)) drawObstacle(sx, sy);
-        else drawTile(map[my][mx], sx, sy);
+        if (isWall(mx, my)) drawObstacle(ctx, TILE, sx, sy);
+        else drawTile(ctx, TILE, map[my][mx], sx, sy);
       }
     }
 
     // nest food-radius overlay (under everything else on the ground, like the scent trail)
-    drawNestRadius(camX, camY);
+    {
+      const minX = nest.x - NEST_FOOD_RADIUS, maxX = nest.x + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
+      const minY = nest.y - NEST_FOOD_RADIUS, maxY = nest.y + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
+      drawNestRadius(ctx, TILE, canvas.width, canvas.height, camX, camY, nest.carried, minX, maxX, minY, maxY, (tx, ty) => nestDistance(tx, ty) <= NEST_FOOD_RADIUS);
+    }
 
     // scent trail (under everything else on the ground)
     for (const key of scentTrail) {
@@ -1445,9 +1185,9 @@ export function initColonyGame() {
     {
       const sx = dummy.x * TILE - camX, sy = dummy.y * TILE - camY;
       if (sx > -TILE && sy > -TILE && sx < canvas.width && sy < canvas.height) {
-        drawTile(DIRT, sx, sy);
+        drawTile(ctx, TILE, DIRT, sx, sy);
         if (dummy.hp <= 0) ctx.globalAlpha = 0.35;
-        drawDummy(sx, sy, now);
+        drawDummy(ctx, TILE, sx, sy, now, dummy.flashUntil, dummy.hp, dummy.maxHp);
         ctx.globalAlpha = 1;
       }
     }
@@ -1465,8 +1205,8 @@ export function initColonyGame() {
     if (!nest.carried) {
       const sx = nest.x * TILE - camX, sy = nest.y * TILE - camY;
       if (sx > -TILE * NEST_SIZE && sy > -TILE * NEST_SIZE && sx < canvas.width && sy < canvas.height) {
-        for (const c of nestCells()) drawTile(DIRT, c.x * TILE - camX, c.y * TILE - camY);
-        drawNest(sx, sy, now);
+        for (const c of nestCells()) drawTile(ctx, TILE, DIRT, c.x * TILE - camX, c.y * TILE - camY);
+        drawNest(ctx, TILE, NEST_SIZE, sx, sy, now, nest.incubating);
       }
     }
 
@@ -1475,7 +1215,7 @@ export function initColonyGame() {
       const sx = colonist.px - camX, sy = colonist.py - camY;
       if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height) continue;
       const def = CASTES[colonist.caste];
-      drawSquareEntity(sx, sy, def.color, def.edge, def.inset);
+      drawSquareEntity(ctx, TILE, sx, sy, def.color, def.edge, def.inset);
       if (colonist.flashUntil && now < colonist.flashUntil) {
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.fillRect(sx + 3, sy + 3, TILE - 6, TILE - 6);
@@ -1484,31 +1224,31 @@ export function initColonyGame() {
         ctx.fillStyle = '#e8c44f';
         ctx.fillRect(sx + TILE / 2 - 1.5, sy - 4, 3, 3);
       }
-      if (colonist.hp < colonist.maxHp) drawHpBar(sx, sy, colonist.hp / colonist.maxHp);
+      if (colonist.hp < colonist.maxHp) drawHpBar(ctx, TILE, sx, sy, colonist.hp / colonist.maxHp);
     }
 
     for (const enemy of enemies) {
       const sx = enemy.px - camX, sy = enemy.py - camY;
       if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height) continue;
-      drawSquareEntity(sx, sy, '#8b3fae', '#43205a', 2);
+      drawSquareEntity(ctx, TILE, sx, sy, '#8b3fae', '#43205a', 2);
       if (enemy.flashUntil && now < enemy.flashUntil) {
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.fillRect(sx + 2, sy + 2, TILE - 4, TILE - 4);
       }
-      if (enemy.hp < enemy.maxHp) drawHpBar(sx, sy, enemy.hp / enemy.maxHp);
+      if (enemy.hp < enemy.maxHp) drawHpBar(ctx, TILE, sx, sy, enemy.hp / enemy.maxHp);
     }
 
     if (player.caste) {
       const sx = player.px - camX, sy = player.py - camY;
       const def = CASTES[player.caste];
       if (player.invulnUntil && now < player.invulnUntil) ctx.globalAlpha = 0.55;
-      drawSquareEntity(sx, sy, def.color, def.edge, def.inset);
+      drawSquareEntity(ctx, TILE, sx, sy, def.color, def.edge, def.inset);
       ctx.globalAlpha = 1;
       if (player.carryingType) {
         ctx.fillStyle = player.carryingType === 'obstacle' ? '#b0aaa0' : '#e8c44f';
         ctx.fillRect(sx + TILE / 2 - 2, sy - 5, 4, 4);
       }
-      if (player.hp < player.maxHp) drawHpBar(sx, sy, player.hp / player.maxHp);
+      if (player.hp < player.maxHp) drawHpBar(ctx, TILE, sx, sy, player.hp / player.maxHp);
     }
 
     if (hoveredTile && hoveredTile.x >= 0 && hoveredTile.y >= 0 && hoveredTile.x < MAP_W && hoveredTile.y < MAP_H) {
@@ -1558,7 +1298,7 @@ export function initColonyGame() {
             attemptSoldierAttack(now);
           } else {
             if (player.path.length === 0) {
-              const p = bfsToAdjacent(player.tileX, player.tileY, tx, ty);
+              const p = bfsToAdjacent(player.tileX, player.tileY, tx, ty, walkable);
               if (p.length) player.path = p; else player.attackTarget = null;
             }
             if (player.path.length) {
