@@ -1,0 +1,262 @@
+  :root {
+    --bg: #262624;
+    --panel: #2D2D2A;
+    --panel-alt: #34332F;
+    --border: #43423D;
+    --border-strong: #55534C;
+    --text: #E8E6E0;
+    --text-dim: #9C9A91;
+    --accent: #D97757;
+    --accent-dim: rgba(217, 119, 87, 0.18);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .stage {
+    padding: 32px 16px 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 900px;
+    width: 100%;
+  }
+  .title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin: 0 0 4px;
+    text-align: center;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 0 0 24px;
+    text-align: center;
+  }
+  .canvas-stage { position: relative; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px var(--border); }
+  .viewport-wrap { background: #000; overflow: hidden; line-height: 0; }
+  canvas#game {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+    cursor: pointer;
+  }
+  .statusbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: rgba(38, 38, 36, 0.85);
+    backdrop-filter: blur(4px);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .stat { display: flex; align-items: baseline; gap: 5px; }
+  .stat-label { color: var(--text-dim); font-size: 10px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .stat-value { color: var(--text); font-size: 12px; font-weight: 600; }
+  .legend {
+    margin-top: 14px;
+    display: flex;
+    gap: 18px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; border: 1px solid rgba(255,255,255,0.15); }
+  .hint {
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.9;
+    max-width: 760px;
+  }
+  .key {
+    display: inline-block;
+    border: 1px solid var(--border-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--panel);
+  }
+  .toast {
+    position: absolute;
+    top: 42px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    z-index: 6;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .toast.show { opacity: 1; }
+
+  .caste-overlay {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    background: rgba(20, 19, 18, 0.94);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+  .caste-heading {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    text-align: center;
+    line-height: 1.5;
+    padding: 0 20px;
+  }
+  .caste-row { display: flex; gap: 14px; }
+  .caste-card {
+    width: 150px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  .caste-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+  .caste-swatch { width: 24px; height: 24px; margin: 0 auto 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); }
+  .caste-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .caste-stats { font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+  .caste-cancel {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .caste-cancel:hover { color: var(--text); }
+
+  .switch-caste-btn {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .switch-caste-btn:hover { background: var(--accent-dim); border-color: var(--accent); }
+  .world-map-panel .switch-caste-btn { flex: 0 0 auto; }
+
+  .seed-control { gap: 6px; }
+  .seed-input {
+    width: 84px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    padding: 2px 6px;
+  }
+
+  .zoom-controls {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .zoom-btn {
+    width: 26px;
+    height: 26px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .zoom-btn:hover { background: var(--accent-dim); border-color: var(--accent); }
+
+  .world-map-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    background: rgba(20, 19, 18, 0.9);
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 16px;
+  }
+  .world-map-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    /* sized relative to the overlay (the game canvas box itself),
+       not the browser viewport, so it can never exceed the game area */
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    box-sizing: border-box;
+    min-height: 0;
+    min-width: 0;
+  }
+  .world-map-title { font-size: 13px; font-weight: 600; color: var(--text); flex: 0 0 auto; }
+  .worldmap-scroll {
+    overflow: auto;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: grab;
+    touch-action: pan-x pan-y;
+  }
+  .worldmap-scroll.dragging { cursor: grabbing; }
+  #worldmap-canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+  }
