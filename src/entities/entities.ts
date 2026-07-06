@@ -42,7 +42,7 @@ function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
     dir: 'down', moving: false, moveStart: 0, moveDur: COLONIST_MOVE_DUR[caste],
     fromX: x, fromY: y, toX: x, toY: y,
     hp: COLONIST_MAX_HP[caste], maxHp: COLONIST_MAX_HP[caste],
-    path: [], carryingFood: false, forageTarget: null, aggroTarget: null,
+    path: [], carrying: null, job: 'wander', dropTarget: null, forageTarget: null, aggroTarget: null,
     nextWanderAt: performance.now() + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS),
     nextRepathAt: 0, lastAttack: 0, aggroUntil: 0, flashUntil: 0,
     exploreTarget: null, scentActive: false, scentOrigin: null, digTile: null,

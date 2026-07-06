@@ -106,8 +106,8 @@ export function render(state: GameState, now: number): void {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillRect(sx + 3, sy + 3, TILE - 6, TILE - 6);
     }
-    if (colonist.carryingFood) {
-      ctx.fillStyle = '#e8c44f';
+    if (colonist.carrying) {
+      ctx.fillStyle = colonist.carrying === 'obstacle' ? '#b0aaa0' : '#e8c44f';
       ctx.fillRect(sx + TILE / 2 - 1.5, sy - 4, 3, 3);
     }
     if (colonist.hp < colonist.maxHp) drawHpBar(ctx, TILE, sx, sy, colonist.hp / colonist.maxHp);

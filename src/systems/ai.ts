@@ -1,6 +1,6 @@
 // Enemy + colonist AI: wander/chase/attack behavior, targeting, and nest
 // production (spawning a new colonist once the player requests one).
-import type { Colonist, Enemy, FoodItem, GameState, HudRefs, Point, Target } from '../types/types';
+import type { Colonist, Enemy, GameState, HudRefs, Point, Target } from '../types/types';
 import {
   CASTES, COLONIST_AGGRO_RADIUS, COLONIST_ATK_COOLDOWN, COLONIST_ATK_DAMAGE, COLONIST_FORAGE_RADIUS,
   COLONIST_MOVE_DUR, COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
@@ -10,13 +10,14 @@ import {
   SCOUT_EXPLORE_MIN_DIST,
 } from '../constants';
 import {
-  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, setWall, spawnFloatingText,
-  updateScent,
+  foodAt, isWall, nearestFoodTo, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, setWall,
+  spawnFloatingText, updateScent,
 } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
 import { damageColonist, damagePlayer, killEnemy } from './combat';
 import { showToast, updateHud } from '../ui/hud';
+import { updateWorker } from './worker-ai';
 
 function targetPos(target: Target) {
   return { x: target.ref.tileX, y: target.ref.tileY };
@@ -140,42 +141,6 @@ function nearestEnemyTo(state: GameState, x: number, y: number, radius: number):
   return best;
 }
 
-// nearest food within radius of (x,y), excluding food already close enough
-// to the nest to fuel spawning and food sitting exactly at (x,y) — the
-// latter matters for scouts, which never remove food from state.foodItems,
-// so once one is standing on a food tile it must look past that tile to
-// notice the next one in a cluster. Scouts also pass excludeScented=true so
-// they don't keep re-discovering (and re-round-tripping to) food that
-// already has a trail leading to it — that food's already reported; it's a
-// worker's job to actually go fetch it, however long that takes
-function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false): FoodItem | null {
-  let best: FoodItem | null = null, bestDist = Infinity;
-  for (const f of state.foodItems) {
-    if (f.x === x && f.y === y) continue;
-    if (nestDistance(state, f.x, f.y) <= NEST_FOOD_RADIUS) continue;
-    if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
-    const d = Math.hypot(f.x - x, f.y - y);
-    if (d <= radius && d < bestDist) { best = f; bestDist = d; }
-  }
-  return best;
-}
-
-// extends a worker's food awareness beyond COLONIST_FORAGE_RADIUS: if a
-// scent-trail tile is within range, treat the food at that trail's origin
-// as spotted too (as long as it's still actually there)
-function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
-  let best: FoodItem | null = null, bestDist = Infinity;
-  for (const key of state.scentTrail) {
-    const [tx, ty] = key.split(',').map(Number);
-    const d = Math.hypot(tx - x, ty - y);
-    if (d > radius || d >= bestDist) continue;
-    const origin = state.scentTrailSource.get(key);
-    if (!origin || !foodAt(state, origin.x, origin.y)) continue;
-    best = origin; bestDist = d;
-  }
-  return best;
-}
-
 // picks a random far-off point to roam toward, in a random direction and
 // distance band, and returns a path to it (or null if nothing panned out) —
 // the path may tunnel through walls, but the target itself must be real
@@ -221,53 +186,8 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
   }
 
   if (colonist.caste === 'worker') {
-    // carrying food back to drop it within range of the nest
-    if (colonist.carryingFood) {
-      const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= NEST_FOOD_RADIUS;
-      if (nearNest) {
-        if (!foodAt(state, colonist.tileX, colonist.tileY)) state.foodItems.push({ x: colonist.tileX, y: colonist.tileY });
-        colonist.carryingFood = false;
-        colonist.path = [];
-      } else {
-        if (colonist.path.length === 0) {
-          const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, NEST_FOOD_RADIUS - 1);
-          const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable) : [];
-          if (p.length) colonist.path = p; else { colonist.carryingFood = false; }
-        }
-        if (colonist.path.length) {
-          const next = colonist.path.shift()!;
-          if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
-          else colonist.path = [];
-        }
-        return;
-      }
-    }
-    // not carrying: look for food outside the nest's radius (no point
-    // hauling food that's already close enough to fuel production)
-    if (!colonist.forageTarget || !foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)) {
-      colonist.forageTarget = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS)
-        ?? nearestFoodViaTrail(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
-      colonist.path = [];
-    }
-    if (colonist.forageTarget) {
-      const f = colonist.forageTarget;
-      if (isAdjacent(colonist.tileX, colonist.tileY, f.x, f.y)) {
-        const idx = state.foodItems.findIndex((fi) => fi.x === f.x && fi.y === f.y);
-        if (idx !== -1) { state.foodItems.splice(idx, 1); colonist.carryingFood = true; }
-        colonist.forageTarget = null;
-        colonist.path = [];
-        return;
-      }
-      if (colonist.path.length === 0) {
-        colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, f.x, f.y, walkable);
-      }
-      if (colonist.path.length) {
-        const next = colonist.path.shift()!;
-        if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
-        else colonist.path = [];
-        return;
-      }
-    }
+    if (updateWorker(state, hud, colonist, now, walkable)) return;
+    // job === 'wander' falls through to the shared wander block below
   }
 
   if (colonist.caste === 'scout') {

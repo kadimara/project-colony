@@ -7,6 +7,7 @@ import type { Rng } from '../worldgen/worldgen';
 export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
+export type WorkerJob = 'returnFood' | 'returnObstacle' | 'followTrail' | 'forage' | 'wander';
 
 export interface Point {
   x: number;
@@ -84,7 +85,9 @@ export interface Colonist extends Actor {
   caste: CasteKey;
   hp: number;
   maxHp: number;
-  carryingFood: boolean;
+  carrying: CarryType | null;
+  job: WorkerJob;
+  dropTarget: Point | null;
   forageTarget: FoodItem | null;
   aggroTarget: Enemy | null;
   nextWanderAt: number;

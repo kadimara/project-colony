@@ -68,6 +68,11 @@ export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_WANDER_RADIUS = 4;
 export const COLONIST_REPATH_MS = 500;
 
+// how far out to scan when a worker looks for a frontier tile (open ground
+// bordering a wall) to relocate a dug-up obstacle block to — same bounded-
+// random-sample style as the other *_RADIUS search constants
+export const WORKER_FRONTIER_SEARCH_RADIUS = 10;
+
 // ---- scouts: roam far from the nest, detour toward any food that comes
 // within COLONIST_FORAGE_RADIUS, then commit to a straight shot back to the
 // nest laying scent the whole way once they find it — a player-controlled

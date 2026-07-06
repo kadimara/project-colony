@@ -4,7 +4,7 @@
 // `spawnEnemies` as a callback parameter so the two files don't form an
 // import cycle (entities/entities.ts imports randomOpenTile/randomOpenTileNear
 // from here, one direction only).
-import type { GameRefs, GameState, Point } from '../types/types';
+import type { FoodItem, GameRefs, GameState, Point } from '../types/types';
 import {
   INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS, PLAYER_MAX_HP,
   SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
@@ -132,6 +132,66 @@ export function randomOpenTileNear(state: GameState, cx: number, cy: number, rad
     if (walkable(state, x, y) && !foodAt(state, x, y)) return { x, y };
   }
   return null;
+}
+
+// nearest food within radius of (x,y), excluding food already close enough
+// to the nest to fuel spawning and food sitting exactly at (x,y) — the
+// latter matters for scouts, which never remove food from state.foodItems,
+// so once one is standing on a food tile it must look past that tile to
+// notice the next one in a cluster. Scouts also pass excludeScented=true so
+// they don't keep re-discovering (and re-round-tripping to) food that
+// already has a trail leading to it — that food's already reported; it's a
+// worker's job to actually go fetch it, however long that takes
+export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false): FoodItem | null {
+  let best: FoodItem | null = null, bestDist = Infinity;
+  for (const f of state.foodItems) {
+    if (f.x === x && f.y === y) continue;
+    if (nestDistance(state, f.x, f.y) <= NEST_FOOD_RADIUS) continue;
+    if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
+    const d = Math.hypot(f.x - x, f.y - y);
+    if (d <= radius && d < bestDist) { best = f; bestDist = d; }
+  }
+  return best;
+}
+
+// extends a worker's food awareness beyond its forage radius: if a
+// scent-trail tile is within range, treat the food at that trail's origin
+// as spotted too (as long as it's still actually there)
+export function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
+  let best: FoodItem | null = null, bestDist = Infinity;
+  for (const key of state.scentTrail) {
+    const [tx, ty] = key.split(',').map(Number);
+    const d = Math.hypot(tx - x, ty - y);
+    if (d > radius || d >= bestDist) continue;
+    const origin = state.scentTrailSource.get(key);
+    if (!origin || !foodAt(state, origin.x, origin.y)) continue;
+    best = origin; bestDist = d;
+  }
+  return best;
+}
+
+// picks a walkable, empty tile that borders at least one wall (a "frontier"
+// tile) and is farther from the nest than (originX,originY) — used when a
+// worker needs to relocate a dug-up obstacle block "outward," away from the
+// colony, instead of just resealing the hole it came from. Same bounded
+// random-sample-then-filter shape as randomOpenTileNear, but scans around
+// the dig site rather than the nest, and keeps the farthest-out candidate
+// found within the try budget so it drifts genuinely outward rather than
+// stopping at the very next qualifying tile.
+export function findFrontierDropSite(state: GameState, originX: number, originY: number, radius: number): Point | null {
+  const originDist = nestDistance(state, originX, originY);
+  let best: Point | null = null, bestDist = -Infinity;
+  for (let tries = 0; tries < 60; tries++) {
+    const x = originX + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const y = originY + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    if (!walkable(state, x, y) || foodAt(state, x, y)) continue;
+    const bordersWall = isWall(state, x + 1, y) || isWall(state, x - 1, y) || isWall(state, x, y + 1) || isWall(state, x, y - 1);
+    if (!bordersWall) continue;
+    const d = nestDistance(state, x, y);
+    if (d <= originDist) continue;
+    if (d > bestDist) { best = { x, y }; bestDist = d; }
+  }
+  return best;
 }
 
 export function spawnFloatingText(state: GameState, entity: { px: number; py: number }, text: string, color: string): void {
