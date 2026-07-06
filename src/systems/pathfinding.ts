@@ -2,7 +2,7 @@
 // targets you can't stand on top of), and Bresenham line-of-sight.
 // `walkable`/`isWall` are passed in so this stays independent of any
 // particular game's entity/terrain state.
-import type { Point } from './types';
+import type { Point } from '../types/types';
 
 export type Walkable = (x: number, y: number) => boolean;
 export type IsWall = (x: number, y: number) => boolean;

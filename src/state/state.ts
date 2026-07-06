@@ -1,16 +1,15 @@
-// World/entity state: the GameState factory, terrain & occupancy queries,
-// entity factories, and the generic actor-movement primitives shared by the
-// player, enemies, and colonists. Behavior (AI decisions, player input,
-// combat resolution) lives in ai.ts / player-actions.ts / combat.ts — this
-// module only knows how to construct and query state, not decide anything.
-import type { Actor, CasteKey, Colonist, Dir, Enemy, FloatingText, GameRefs, GameState, Point } from './types';
+// GameState lifecycle and terrain/entity-occupancy queries. Entity factories
+// and generic actor-movement primitives live in entities/entities.ts instead —
+// this module never imports them; `createGameState`/`regenerateWorld` take
+// `spawnEnemies` as a callback parameter so the two files don't form an
+// import cycle (entities/entities.ts imports randomOpenTile/randomOpenTileNear
+// from here, one direction only).
+import type { GameRefs, GameState, Point } from '../types/types';
 import {
-  COLONIST_MAX_HP, COLONIST_MOVE_DUR, ENEMY_MAX_HP, ENEMY_MOVE_DUR, ENEMY_SPAWN_MIN_DIST,
-  ENEMY_COUNT, ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, INITIAL_FOOD_COUNT, INITIAL_SEED,
-  MAP_H, MAP_W, MAX_COLONISTS, NEST_FOOD_RADIUS, PLAYER_MAX_HP,
-  SPAWN_X, SPAWN_Y, TILE, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS,
-} from './constants';
-import { buildMap, buildWalls, mulberry32 } from './worldgen';
+  INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS, PLAYER_MAX_HP,
+  SPAWN_X, SPAWN_Y, TILE,
+} from '../constants';
+import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
 
 export function terrainWalkable(state: GameState, x: number, y: number): boolean {
   if (x < 0 || y < 0 || y >= state.map.length || x >= state.map[0].length) return false;
@@ -98,86 +97,14 @@ export function randomOpenTileNear(state: GameState, cx: number, cy: number, rad
   return null;
 }
 
-function makeEnemy(x: number, y: number): Enemy {
-  return {
-    tileX: x, tileY: y, px: x * TILE, py: y * TILE,
-    dir: 'down', moving: false, moveStart: 0, moveDur: ENEMY_MOVE_DUR,
-    fromX: x, fromY: y, toX: x, toY: y,
-    hp: ENEMY_MAX_HP, maxHp: ENEMY_MAX_HP,
-    state: 'wander', target: null, path: [],
-    nextWanderAt: performance.now() + ENEMY_WANDER_MIN_MS + Math.random() * (ENEMY_WANDER_MAX_MS - ENEMY_WANDER_MIN_MS),
-    nextRepathAt: 0, lastAttack: 0, aggroUntil: 0, flashUntil: 0,
-  };
-}
-
-export function spawnEnemies(state: GameState): void {
-  state.enemies.length = 0;
-  for (let i = 0; i < ENEMY_COUNT; i++) {
-    let spot: Point | null = null;
-    for (let tries = 0; tries < 30; tries++) {
-      const s = randomOpenTile(state);
-      if (!s) break;
-      if (Math.hypot(s.x - SPAWN_X, s.y - SPAWN_Y) >= ENEMY_SPAWN_MIN_DIST) { spot = s; break; }
-    }
-    if (spot) state.enemies.push(makeEnemy(spot.x, spot.y));
-  }
-}
-
-function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
-  return {
-    caste, tileX: x, tileY: y, px: x * TILE, py: y * TILE,
-    dir: 'down', moving: false, moveStart: 0, moveDur: COLONIST_MOVE_DUR[caste],
-    fromX: x, fromY: y, toX: x, toY: y,
-    hp: COLONIST_MAX_HP[caste], maxHp: COLONIST_MAX_HP[caste],
-    path: [], carryingFood: false, forageTarget: null, aggroTarget: null,
-    nextWanderAt: performance.now() + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS),
-    nextRepathAt: 0, lastAttack: 0, aggroUntil: 0, flashUntil: 0,
-  };
-}
-
-export function spawnColonist(state: GameState, caste: CasteKey): void {
-  if (state.colonists.length >= MAX_COLONISTS) return;
-  const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, 4) || randomOpenTile(state);
-  if (spot) state.colonists.push(makeColonist(caste, spot.x, spot.y));
-}
-
 export function spawnFloatingText(state: GameState, entity: { px: number; py: number }, text: string, color: string): void {
-  const ft: FloatingText = { worldX: entity.px + TILE / 2, worldY: entity.py, text, color, born: performance.now() };
-  state.floatingTexts.push(ft);
-}
-
-// ---- generic actor movement primitives (shared by player/enemy/colonist) ----
-export function dirBetween(fromX: number, fromY: number, toX: number, toY: number): Dir {
-  if (toX > fromX) return 'right';
-  if (toX < fromX) return 'left';
-  if (toY > fromY) return 'down';
-  return 'up';
-}
-
-export function startStep(actor: Actor, nx: number, ny: number, dir: Dir): void {
-  actor.dir = dir;
-  actor.fromX = actor.tileX; actor.fromY = actor.tileY;
-  actor.toX = nx; actor.toY = ny;
-  actor.tileX = nx; actor.tileY = ny;
-  actor.moving = true;
-  actor.moveStart = performance.now();
-}
-
-export function updateActorAnimation(actor: Actor, now: number): void {
-  if (!actor.moving) return;
-  const t = Math.min(1, (now - actor.moveStart) / actor.moveDur);
-  actor.px = (actor.fromX + (actor.toX - actor.fromX) * t) * TILE;
-  actor.py = (actor.fromY + (actor.toY - actor.fromY) * t) * TILE;
-  if (t >= 1) {
-    actor.moving = false;
-    actor.px = actor.toX * TILE; actor.py = actor.toY * TILE;
-  }
+  state.floatingTexts.push({ worldX: entity.px + TILE / 2, worldY: entity.py, text, color, born: performance.now() });
 }
 
 // rebuilds the whole world in place from a new seed — no reload needed,
 // since navigating/rewriting the URL isn't available in this environment.
 // Purely mutates state; callers are responsible for refreshing any HUD/DOM.
-export function regenerateWorld(state: GameState, newSeed: number): void {
+export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies: (state: GameState) => void): void {
   state.seed = newSeed;
   state.rng = mulberry32(newSeed);
 
@@ -207,7 +134,7 @@ export function regenerateWorld(state: GameState, newSeed: number): void {
   player.invulnUntil = 0;
 }
 
-export function createGameState(refs: GameRefs): GameState {
+export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState) => void): GameState {
   const seed = INITIAL_SEED;
   const rng = mulberry32(seed);
   const map = buildMap(MAP_W, MAP_H);

@@ -1,20 +1,20 @@
 // Enemy + colonist AI: wander/chase/attack behavior, targeting, and nest
 // production (spawning a new colonist once the player requests one).
-import type { Colonist, Enemy, FoodItem, GameState, HudRefs, Target } from './types';
+import type { Colonist, Enemy, FoodItem, GameState, HudRefs, Target } from '../types/types';
 import {
   CASTES, COLONIST_AGGRO_RADIUS, COLONIST_ATK_COOLDOWN, COLONIST_ATK_DAMAGE, COLONIST_FORAGE_RADIUS,
   COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
   ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
   NEST_FOOD_RADIUS, NEST_INCUBATE_MS,
-} from './constants';
+} from '../constants';
 import {
-  dirBetween, foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, spawnColonist,
-  spawnFloatingText, startStep, updateActorAnimation,
-} from './state';
+  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, spawnFloatingText,
+} from '../state/state';
+import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
 import { bfsToAdjacent, findPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
 import { damageColonist, damagePlayer, killEnemy } from './combat';
-import { showToast, updateHud } from './hud';
+import { showToast, updateHud } from '../ui/hud';
 
 function targetPos(target: Target) {
   return { x: target.ref.tileX, y: target.ref.tileY };

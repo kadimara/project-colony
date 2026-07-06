@@ -1,11 +1,11 @@
 // HUD stat bar, toast messages, and the caste/nest/world-map overlays: DOM
 // refs plus pure render/open/close functions. Game-logic decisions (which
 // caste gets picked, whether a nest spawn is allowed) are injected as
-// callbacks from index.ts so this module never has to import player-actions
+// callbacks from game.ts so this module never has to import player-actions
 // or ai directly.
-import type { CasteKey, GameState, HudRefs } from './types';
-import { CASTES, CASTE_DESCRIPTIONS, MAX_COLONISTS, NEST_FOOD_COST, NEST_FOOD_RADIUS, WORLD_TILE, NEST_CASTE_DESCRIPTIONS } from './constants';
-import { countFoodNearNest, playerInNestRadius } from './state';
+import type { CasteKey, GameState, HudRefs } from '../types/types';
+import { CASTES, CASTE_DESCRIPTIONS, MAX_COLONISTS, NEST_FOOD_COST, NEST_FOOD_RADIUS, WORLD_TILE, NEST_CASTE_DESCRIPTIONS } from '../constants';
+import { countFoodNearNest, playerInNestRadius } from '../state/state';
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);

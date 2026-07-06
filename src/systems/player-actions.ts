@@ -1,33 +1,15 @@
-// Player-specific behavior: held-key movement, the worker's pickup/place,
-// the scout's scent trail, the soldier's attack, and caste switching.
-import type { CarryType, CasteKey, Dir, GameState, HudRefs } from './types';
-import { CASTES, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE } from './constants';
+// Player action resolution: movement, the worker's pickup/place, the
+// scout's scent trail, the soldier's attack, and caste switching. Raw key
+// tracking (which keys are currently held) lives in input/player-input.ts.
+import type { CarryType, CasteKey, Dir, GameState, HudRefs } from '../types/types';
+import { CASTES, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, spawnFloatingText, startStep, terrainWalkable,
-} from './state';
+  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, spawnFloatingText, terrainWalkable,
+} from '../state/state';
+import { startStep } from '../entities/entities';
 import { bfsToAdjacent, isAdjacent } from './pathfinding';
 import { killEnemy } from './combat';
-import { updateHud } from './hud';
-
-const keys: Record<string, boolean> = {};
-const MOVE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'];
-
-export function setupPlayerInput(state: GameState): void {
-  window.addEventListener('keydown', (e) => {
-    if (MOVE_KEYS.includes(e.key)) e.preventDefault();
-    keys[e.key.toLowerCase()] = true;
-    state.player.path = []; state.player.pendingAction = null; state.player.attackTarget = null;
-  });
-  window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
-}
-
-export function heldDir(): Dir | null {
-  if (keys['arrowup'] || keys['w']) return 'up';
-  if (keys['arrowdown'] || keys['s']) return 'down';
-  if (keys['arrowleft'] || keys['a']) return 'left';
-  if (keys['arrowright'] || keys['d']) return 'right';
-  return null;
-}
+import { updateHud } from '../ui/hud';
 
 export function tryMove(state: GameState, dir: Dir, walkable: (x: number, y: number) => boolean): void {
   let dx = 0, dy = 0;

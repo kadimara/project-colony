@@ -2,14 +2,14 @@
 // damage to the player/colonists/enemies, and the consequences of death
 // (dropping food, removing the corpse, respawning the player). Kept separate
 // from player-actions.ts and ai.ts so neither has to import the other.
-import type { Colonist, Enemy, GameState, HudRefs } from './types';
+import type { Colonist, Enemy, GameState, HudRefs } from '../types/types';
 import {
   PLAYER_HIT_INVULN_MS, PLAYER_RESPAWN_INVULN_MS, SPAWN_X, SPAWN_Y, TILE,
-} from './constants';
+} from '../constants';
 import {
   foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, spawnFloatingText, terrainWalkable,
-} from './state';
-import { showToast, updateHud } from './hud';
+} from '../state/state';
+import { showToast, updateHud } from '../ui/hud';
 
 // every living ant/enemy drops one food where it fell, falling back to a
 // nearby open tile if that exact spot is occupied

@@ -1,7 +1,7 @@
 // Viewport/zoom/camera math: how many tiles are visible, how the canvas is
 // sized on screen, and converting between screen pixels and world tiles.
-import type { GameState, Point } from './types';
-import { MAP_H, MAP_W, TILE, ZOOM_LEVELS } from './constants';
+import type { GameState, Point } from '../types/types';
+import { MAP_H, MAP_W, TILE, ZOOM_LEVELS } from '../constants';
 
 export function applyZoom(state: GameState, index: number): void {
   state.zoomIndex = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));

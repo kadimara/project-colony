@@ -2,7 +2,7 @@
 // bars, and the nest/nest-radius sprites. Each function only takes the
 // canvas context plus the primitive values it needs to draw one thing, so
 // none of it depends on the game's entity/state model.
-import { DIRT, DIRT2 } from './worldgen';
+import { DIRT, DIRT2 } from '../worldgen/worldgen';
 
 export const COLORS: Record<number, [string, string]> = {
   [DIRT]:  ['#4a331d', '#402c19'],

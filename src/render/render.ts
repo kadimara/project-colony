@@ -1,11 +1,11 @@
 // The main canvas draw loop plus the world-map overview panel. Reads
 // GameState and draws it using the low-level primitives in rendering.ts —
 // no game logic lives here, only presentation.
-import type { GameState, Point } from './types';
-import { CASTES, MAP_H, MAP_W, NEST_FOOD_RADIUS, NEST_SIZE, TILE, WORLD_TILE } from './constants';
+import type { GameState, Point } from '../types/types';
+import { CASTES, MAP_H, MAP_W, NEST_FOOD_RADIUS, NEST_SIZE, TILE, WORLD_TILE } from '../constants';
 import { getClampedCamX, getClampedCamY } from './camera';
-import { isColonistAt, isNestAt, isWall, nestCells, nestDistance, obstacleAt } from './state';
-import { DIRT } from './worldgen';
+import { isColonistAt, isNestAt, isWall, nestCells, nestDistance, obstacleAt } from '../state/state';
+import { DIRT } from '../worldgen/worldgen';
 import { drawHpBar, drawNest, drawNestRadius, drawObstacle, drawSquareEntity, drawTile } from './rendering';
 
 export function renderWorldMap(state: GameState): void {

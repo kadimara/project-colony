@@ -1,4 +1,4 @@
-import Colony from './colony/Colony'
+import Colony from './Colony'
 
 function App() {
   return <Colony />

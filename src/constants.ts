@@ -1,4 +1,4 @@
-import type { CasteDef, CasteKey, ZoomLevel } from './types';
+import type { CasteDef, CasteKey, ZoomLevel } from './types/types';
 
 export const TILE = 16;
 export const MAP_W = 100;

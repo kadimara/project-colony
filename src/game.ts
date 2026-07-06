@@ -1,24 +1,24 @@
 // Orchestrator: builds the game state and DOM refs, wires every DOM event
 // listener, and drives the tick/render loop. Behavior itself lives in the
 // other modules — this file only connects them.
-import type { CasteKey, GameRefs } from './types';
+import type { CasteKey, GameRefs } from './types/types';
 import { DEFAULT_ZOOM_INDEX, MAP_H, MAP_W, WORLD_TILE } from './constants';
 import {
-  createGameState, dirBetween, foodAt, isNestAt, obstacleAt, regenerateWorld, startStep,
-  updateActorAnimation, walkable as stateWalkable,
-} from './state';
-import { applyZoom, screenToTile } from './camera';
-import { bfsToAdjacent, findPath, isAdjacent } from './pathfinding';
+  createGameState, foodAt, isNestAt, obstacleAt, regenerateWorld, walkable as stateWalkable,
+} from './state/state';
+import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './entities/entities';
+import { applyZoom, screenToTile } from './render/camera';
+import { bfsToAdjacent, findPath, isAdjacent } from './systems/pathfinding';
 import {
-  applyCaste, attemptSoldierAttack, heldDir, onPlayerArrived, setupPlayerInput,
-  tryMove, tryPlaceAt, trySelectPickup,
-} from './player-actions';
-import { startNestSpawn, updateColonist, updateEnemy, updateNest } from './ai';
+  applyCaste, attemptSoldierAttack, onPlayerArrived, tryMove, tryPlaceAt, trySelectPickup,
+} from './systems/player-actions';
+import { heldDir, setupPlayerInput } from './input/player-input';
+import { startNestSpawn, updateColonist, updateEnemy, updateNest } from './systems/ai';
 import {
   closeCasteOverlay, closeNestOverlay, createHudRefs, enableDragPan, openCasteOverlay,
   openNestOverlay, setMapOpen, updateHud,
-} from './hud';
-import { render, renderWorldMap } from './render';
+} from './ui/hud';
+import { render, renderWorldMap } from './render/render';
 
 let started = false;
 
@@ -34,7 +34,7 @@ export function initColonyGame(): void {
   worldCtx.imageSmoothingEnabled = false;
 
   const refs: GameRefs = { canvas, ctx, worldCanvas, worldCtx };
-  const state = createGameState(refs);
+  const state = createGameState(refs, spawnEnemies);
   const hud = createHudRefs();
 
   worldCanvas.width = MAP_W * WORLD_TILE;
@@ -116,14 +116,14 @@ export function initColonyGame(): void {
   hud.seedLoadBtn.addEventListener('click', () => {
     const v = parseInt(hud.seedInput.value, 10);
     if (Number.isFinite(v)) {
-      regenerateWorld(state, v);
+      regenerateWorld(state, v, spawnEnemies);
       hud.seedInput.value = String(state.seed);
       updateHud(state, hud);
       openCaste();
     }
   });
   hud.seedRandomBtn.addEventListener('click', () => {
-    regenerateWorld(state, Math.floor(Math.random() * 1e9));
+    regenerateWorld(state, Math.floor(Math.random() * 1e9), spawnEnemies);
     hud.seedInput.value = String(state.seed);
     updateHud(state, hud);
     openCaste();

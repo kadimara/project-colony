@@ -2,7 +2,7 @@
 // bag of mutable simulation state that every other module reads and writes —
 // modules take it as a parameter instead of closing over local variables, so
 // each file's dependencies are explicit and it stays independently readable.
-import type { Rng } from './worldgen';
+import type { Rng } from '../worldgen/worldgen';
 
 export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
