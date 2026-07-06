@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import './colony.css'
-import { initColonyGame } from './colony-game'
+import { initColonyGame } from './game'
 
 function Colony() {
   useEffect(() => {
