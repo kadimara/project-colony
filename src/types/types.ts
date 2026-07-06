@@ -1,0 +1,170 @@
+// Shared type definitions for the colony game engine. GameState is the single
+// bag of mutable simulation state that every other module reads and writes —
+// modules take it as a parameter instead of closing over local variables, so
+// each file's dependencies are explicit and it stays independently readable.
+import type { Rng } from '../worldgen/worldgen';
+
+export type CasteKey = 'worker' | 'soldier' | 'scout';
+export type Dir = 'up' | 'down' | 'left' | 'right';
+export type CarryType = 'obstacle' | 'food';
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export type FoodItem = Point;
+
+export interface CasteDef {
+  name: string;
+  color: string;
+  edge: string;
+  moveDur: number;
+  inset: number;
+}
+
+export interface ZoomLevel {
+  vpw: number;
+  vph: number;
+  scale: number;
+}
+
+// common movement/animation fields shared by the player, enemies, and colonists
+export interface Actor {
+  tileX: number;
+  tileY: number;
+  px: number;
+  py: number;
+  dir: Dir;
+  moving: boolean;
+  moveStart: number;
+  moveDur: number;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  path: Point[];
+}
+
+export type PendingAction =
+  | { type: 'pickup'; x: number; y: number; kind: CarryType }
+  | { type: 'place'; x: number; y: number };
+
+export interface Player extends Actor {
+  caste: CasteKey | null;
+  carryingType: CarryType | null;
+  pendingAction: PendingAction | null;
+  pathHistory: Point[];
+  attackTarget: Enemy | null;
+  lastAttack: number;
+  hp: number;
+  maxHp: number;
+  invulnUntil: number;
+}
+
+export type Target =
+  | { kind: 'player'; ref: Player }
+  | { kind: 'colonist'; ref: Colonist };
+
+export interface Enemy extends Actor {
+  hp: number;
+  maxHp: number;
+  state: 'wander' | 'chase';
+  target: Target | null;
+  nextWanderAt: number;
+  nextRepathAt: number;
+  lastAttack: number;
+  aggroUntil: number;
+  flashUntil: number;
+}
+
+export interface Colonist extends Actor {
+  caste: CasteKey;
+  hp: number;
+  maxHp: number;
+  carryingFood: boolean;
+  forageTarget: FoodItem | null;
+  aggroTarget: Enemy | null;
+  nextWanderAt: number;
+  nextRepathAt: number;
+  lastAttack: number;
+  aggroUntil: number;
+  flashUntil: number;
+}
+
+export interface Nest {
+  x: number;
+  y: number;
+  incubating: boolean;
+  incubateStart: number;
+  pendingCaste: CasteKey | null;
+}
+
+export interface FloatingText {
+  worldX: number;
+  worldY: number;
+  text: string;
+  color: string;
+  born: number;
+}
+
+export interface GameRefs {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  worldCanvas: HTMLCanvasElement;
+  worldCtx: CanvasRenderingContext2D;
+}
+
+// DOM element refs for the HUD stat bar and the caste/nest/world-map overlays
+export interface HudRefs {
+  statCaste: HTMLElement;
+  statHp: HTMLElement;
+  statCarry: HTMLElement;
+  statTrail: HTMLElement;
+  statPopulation: HTMLElement;
+  toastEl: HTMLElement;
+
+  casteOverlay: HTMLElement;
+  casteRow: HTMLElement;
+  casteHeading: HTMLElement;
+  casteCancel: HTMLElement;
+  switchCasteBtn: HTMLElement;
+
+  nestOverlay: HTMLElement;
+  nestStatusEl: HTMLElement;
+  nestRow: HTMLElement;
+  nestCancel: HTMLElement;
+
+  worldMapOverlay: HTMLElement;
+  worldMapCloseBtn: HTMLElement;
+  mapToggleBtn: HTMLElement;
+  worldMapScroll: HTMLElement;
+
+  seedInput: HTMLInputElement;
+  seedLoadBtn: HTMLElement;
+  seedRandomBtn: HTMLElement;
+  zoomInBtn: HTMLElement;
+  zoomOutBtn: HTMLElement;
+}
+
+export interface GameState {
+  refs: GameRefs;
+
+  seed: number;
+  rng: Rng;
+  map: number[][];
+  wallSet: Set<string>;
+  foodItems: FoodItem[];
+  enemies: Enemy[];
+  colonists: Colonist[];
+  nest: Nest;
+  player: Player;
+  scentTrail: Set<string>;
+  floatingTexts: FloatingText[];
+
+  zoomIndex: number;
+  VP_W: number;
+  VP_H: number;
+  mapOpen: boolean;
+  hoveredTile: Point | null;
+}

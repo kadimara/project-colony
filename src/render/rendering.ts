@@ -1,16 +1,15 @@
-// @ts-nocheck
 // Low-level canvas drawing primitives: tiles, obstacles, entity squares, HP
 // bars, and the nest/nest-radius sprites. Each function only takes the
 // canvas context plus the primitive values it needs to draw one thing, so
 // none of it depends on the game's entity/state model.
-import { DIRT, DIRT2 } from './worldgen';
+import { DIRT, DIRT2 } from '../worldgen/worldgen';
 
-export const COLORS = {
+export const COLORS: Record<number, [string, string]> = {
   [DIRT]:  ['#4a331d', '#402c19'],
   [DIRT2]: ['#523823', '#472f1d'],
 };
 
-export function drawTile(ctx, TILE, type, sx, sy) {
+export function drawTile(ctx: CanvasRenderingContext2D, TILE: number, type: number, sx: number, sy: number): void {
   const pair = COLORS[type] || COLORS[DIRT];
   ctx.fillStyle = pair[0];
   ctx.fillRect(sx, sy, TILE, TILE);
@@ -19,7 +18,7 @@ export function drawTile(ctx, TILE, type, sx, sy) {
   ctx.fillRect(sx + TILE / 2, sy + TILE / 2, TILE / 2, TILE / 2);
 }
 
-export function drawObstacle(ctx, TILE, sx, sy) {
+export function drawObstacle(ctx: CanvasRenderingContext2D, TILE: number, sx: number, sy: number): void {
   drawTile(ctx, TILE, DIRT, sx, sy);
   const m1 = Math.max(1, Math.round(TILE * 0.09));
   const m2 = Math.max(1, Math.round(TILE * 0.16));
@@ -29,7 +28,7 @@ export function drawObstacle(ctx, TILE, sx, sy) {
   ctx.fillRect(sx + m2, sy + m2, TILE - m2 * 2, TILE - m2 * 2);
 }
 
-export function drawSquareEntity(ctx, TILE, sx, sy, fill, edge, inset) {
+export function drawSquareEntity(ctx: CanvasRenderingContext2D, TILE: number, sx: number, sy: number, fill: string, edge: string, inset: number): void {
   const size = TILE - inset * 2;
   ctx.fillStyle = edge;
   ctx.fillRect(sx + inset - 1, sy + inset - 1, size + 2, size + 2);
@@ -37,7 +36,7 @@ export function drawSquareEntity(ctx, TILE, sx, sy, fill, edge, inset) {
   ctx.fillRect(sx + inset, sy + inset, size, size);
 }
 
-export function drawHpBar(ctx, TILE, sx, sy, ratio) {
+export function drawHpBar(ctx: CanvasRenderingContext2D, TILE: number, sx: number, sy: number, ratio: number): void {
   const margin = Math.max(1, Math.round(TILE * 0.16));
   const w = TILE - margin * 2, h = Math.max(1, Math.round(TILE * 0.125));
   const bx = sx + margin, by = sy - Math.round(TILE * 0.25);
@@ -49,7 +48,7 @@ export function drawHpBar(ctx, TILE, sx, sy, ratio) {
   ctx.fillRect(bx, by, Math.max(0, w * ratio), h);
 }
 
-export function drawNest(ctx, TILE, NEST_SIZE, sx, sy, now, incubating) {
+export function drawNest(ctx: CanvasRenderingContext2D, TILE: number, NEST_SIZE: number, sx: number, sy: number, now: number, incubating: boolean): void {
   // a plain white 2x2 block, like a clutch of eggs — sx,sy is the
   // screen position of the nest's top-left tile
   const w = TILE * NEST_SIZE, h = TILE * NEST_SIZE, inset = 4;
@@ -70,7 +69,11 @@ export function drawNest(ctx, TILE, NEST_SIZE, sx, sy, now, incubating) {
 // withinRadius(tx,ty) decides which tiles in the [minX,maxX]x[minY,maxY]
 // box get shaded, keeping this primitive agnostic of how "nest distance" is
 // actually computed.
-export function drawNestRadius(ctx, TILE, canvasWidth, canvasHeight, camX, camY, minX, maxX, minY, maxY, withinRadius) {
+export function drawNestRadius(
+  ctx: CanvasRenderingContext2D, TILE: number, canvasWidth: number, canvasHeight: number,
+  camX: number, camY: number, minX: number, maxX: number, minY: number, maxY: number,
+  withinRadius: (tx: number, ty: number) => boolean,
+): void {
   ctx.fillStyle = 'rgba(232,196,79,0.10)';
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {

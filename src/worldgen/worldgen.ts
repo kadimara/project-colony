@@ -1,8 +1,10 @@
-// @ts-nocheck
 // World generation: seeded RNG, simplex noise, and the procedural cave-wall
 // pass that turns noise into a walkable/solid tile map.
 
-export function mulberry32(seed) {
+export type Rng = () => number;
+export type Noise2D = (x: number, y: number) => number;
+
+export function mulberry32(seed: number): Rng {
   return function () {
     seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -12,7 +14,7 @@ export function mulberry32(seed) {
 }
 
 // 2D simplex noise (public-domain reference algorithm, seeded permutation)
-export function makeSimplex2D(noiseSeed) {
+export function makeSimplex2D(noiseSeed: number): Noise2D {
   const noiseRng = mulberry32(noiseSeed);
   const p = new Uint8Array(256);
   for (let i = 0; i < 256; i++) p[i] = i;
@@ -33,7 +35,7 @@ export function makeSimplex2D(noiseSeed) {
   ];
   const F2 = 0.5 * (Math.sqrt(3) - 1);
   const G2 = (3 - Math.sqrt(3)) / 6;
-  return function noise2D(xin, yin) {
+  return function noise2D(xin: number, yin: number): number {
     let n0 = 0, n1 = 0, n2 = 0;
     const s = (xin + yin) * F2;
     const i = Math.floor(xin + s);
@@ -59,7 +61,7 @@ export function makeSimplex2D(noiseSeed) {
   };
 }
 
-export function fbm(noise2D, x, y, octaves, persistence, lacunarity, scale) {
+export function fbm(noise2D: Noise2D, x: number, y: number, octaves: number, persistence: number, lacunarity: number, scale: number): number {
   let total = 0, amplitude = 1, frequency = 1 / scale, maxValue = 0;
   for (let o = 0; o < octaves; o++) {
     total += noise2D(x * frequency, y * frequency) * amplitude;
@@ -78,10 +80,10 @@ export const CAVE_PRESET = { scale: 19, octaves: 4, persistence: 0.8, lacunarity
 // ground tile variants (aesthetic checkerboard, not walkability)
 export const DIRT = 0, DIRT2 = 1;
 
-export function buildMap(mapW, mapH) {
-  const map = [];
+export function buildMap(mapW: number, mapH: number): number[][] {
+  const map: number[][] = [];
   for (let y = 0; y < mapH; y++) {
-    const row = [];
+    const row: number[] = [];
     for (let x = 0; x < mapW; x++) row.push((x + y) % 5 === 0 ? DIRT2 : DIRT);
     map.push(row);
   }
@@ -91,8 +93,8 @@ export function buildMap(mapW, mapH) {
 // generates the solid-wall set for a mapW x mapH cave from fbm noise, then
 // carves out a safety bubble around the spawn point so the player never
 // spawns sealed inside solid rock
-export function buildWalls(seed, mapW, mapH, spawnX, spawnY) {
-  const walls = new Set();
+export function buildWalls(seed: number, mapW: number, mapH: number, spawnX: number, spawnY: number): Set<string> {
+  const walls = new Set<string>();
   const noise2D = makeSimplex2D(seed);
   const { scale, octaves, persistence, lacunarity, threshold } = CAVE_PRESET;
   // direct 1:1 mapping: one noise sample per tile. Walkable below the
@@ -104,7 +106,7 @@ export function buildWalls(seed, mapW, mapH, spawnX, spawnY) {
       if (n >= threshold) walls.add(x + ',' + y);
     }
   }
-  const carve = (x, y) => { if (x > 0 && y > 0 && x < mapW - 1 && y < mapH - 1) walls.delete(x + ',' + y); };
+  const carve = (x: number, y: number) => { if (x > 0 && y > 0 && x < mapW - 1 && y < mapH - 1) walls.delete(x + ',' + y); };
   const SPAWN_SAFETY_R = 3;
   for (let y = spawnY - SPAWN_SAFETY_R; y <= spawnY + SPAWN_SAFETY_R; y++) {
     for (let x = spawnX - SPAWN_SAFETY_R; x <= spawnX + SPAWN_SAFETY_R; x++) {
