@@ -68,11 +68,12 @@ export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_WANDER_RADIUS = 4;
 export const COLONIST_REPATH_MS = 500;
 
-// ---- scouts: roam far from the nest and lay a scent trail whenever they
-// stumble across food, same as a player-controlled scout ----
+// ---- scouts: roam far from the nest, detour toward any food that comes
+// within COLONIST_FORAGE_RADIUS, then commit to a straight shot back to the
+// nest laying scent the whole way once they find it — a player-controlled
+// scout gets the same scent on/off toggle but is never auto-piloted there ----
 export const SCOUT_EXPLORE_MIN_DIST = 8;
 export const SCOUT_EXPLORE_MAX_DIST = 20;
-export const SCOUT_PATH_HISTORY_MAX = 400;
 
 // scouts can tunnel through a wall tile (removing it, then restoring it once
 // they've moved past) to reach pockets otherwise sealed off entirely — the

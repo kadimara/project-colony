@@ -89,6 +89,25 @@ export function scoutCost(state: GameState, x: number, y: number): number | null
   return isWall(state, x, y) ? SCOUT_DIG_COST : 1;
 }
 
+// call once per tick for any scout (player or colonist) at its current tile:
+// turns scent on the moment it finds food outside the nest's own radius,
+// marks every tile crossed while active, and switches off once back home
+export function updateScent(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigin: Point | null }): void {
+  if (!actor.scentActive && foodAt(state, actor.tileX, actor.tileY) && nestDistance(state, actor.tileX, actor.tileY) > NEST_FOOD_RADIUS) {
+    actor.scentActive = true;
+    actor.scentOrigin = { x: actor.tileX, y: actor.tileY };
+  }
+  if (actor.scentActive) {
+    const key = actor.tileX + ',' + actor.tileY;
+    state.scentTrail.add(key);
+    if (actor.scentOrigin) state.scentTrailSource.set(key, actor.scentOrigin);
+  }
+  if (actor.scentActive && nestDistance(state, actor.tileX, actor.tileY) <= NEST_FOOD_RADIUS) {
+    actor.scentActive = false;
+    actor.scentOrigin = null;
+  }
+}
+
 export function randomOpenTile(state: GameState): Point | null {
   for (let tries = 0; tries < 300; tries++) {
     const x = 1 + Math.floor(state.rng() * (MAP_W - 2));
@@ -130,6 +149,7 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   state.colonists.length = 0;
 
   state.scentTrail.clear();
+  state.scentTrailSource.clear();
 
   const { player } = state;
   player.caste = null;
@@ -137,7 +157,8 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   player.pendingAction = null;
   player.attackTarget = null;
   player.path = [];
-  player.pathHistory = [];
+  player.scentActive = false;
+  player.scentOrigin = null;
   player.moving = false;
   player.tileX = SPAWN_X; player.tileY = SPAWN_Y;
   player.px = SPAWN_X * TILE; player.py = SPAWN_Y * TILE;
@@ -166,11 +187,12 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
       tileX: SPAWN_X, tileY: SPAWN_Y, px: SPAWN_X * TILE, py: SPAWN_Y * TILE,
       dir: 'down', moving: false, moveStart: 0, moveDur: 240,
       fromX: 0, fromY: 0, toX: 0, toY: 0, path: [],
-      caste: null, carryingType: null, pendingAction: null, pathHistory: [],
+      caste: null, carryingType: null, pendingAction: null, scentActive: false, scentOrigin: null,
       attackTarget: null, lastAttack: 0,
       hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, invulnUntil: 0, digTile: null,
     },
     scentTrail: new Set(),
+    scentTrailSource: new Map(),
     floatingTexts: [],
     zoomIndex: 0,
     VP_W: 0,

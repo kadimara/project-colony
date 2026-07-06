@@ -6,7 +6,7 @@ import {
   CASTES, SCOUT_DIG_MOVE_DUR, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, spawnFloatingText, terrainWalkable,
+  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, spawnFloatingText, terrainWalkable, updateScent,
 } from '../state/state';
 import { startStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, isAdjacent, type Walkable } from './pathfinding';
@@ -84,10 +84,8 @@ export function applyCaste(state: GameState, hud: HudRefs, casteKey: CasteKey, r
   if (resetPosition) {
     player.tileX = SPAWN_X; player.tileY = SPAWN_Y;
     player.px = SPAWN_X * TILE; player.py = SPAWN_Y * TILE;
-    player.pathHistory = [{ x: SPAWN_X, y: SPAWN_Y }];
-  } else {
-    player.pathHistory = [{ x: player.tileX, y: player.tileY }];
   }
+  player.scentActive = false; player.scentOrigin = null;
   updateHud(state, hud);
 }
 
@@ -137,15 +135,6 @@ export function tryPlaceAt(state: GameState, hud: HudRefs, x: number, y: number,
   if (path.length) { player.pendingAction = { type: 'place', x, y }; player.path = path; }
 }
 
-// ---- scout: lay a scent trail along the path to a discovery ----
-export function layScentTrail(state: GameState, hud: HudRefs): void {
-  const { player } = state;
-  for (const t of player.pathHistory) state.scentTrail.add(t.x + ',' + t.y);
-  spawnFloatingText(state, player, 'found something!', '#9be89b');
-  player.pathHistory = [{ x: player.tileX, y: player.tileY }];
-  updateHud(state, hud);
-}
-
 // ---- soldier: attack an enemy ----
 export function attemptSoldierAttack(state: GameState, hud: HudRefs, now: number): void {
   const { player } = state;
@@ -184,11 +173,9 @@ export function onPlayerArrived(state: GameState, hud: HudRefs): void {
     // otherwise: still mid-walk toward the target, keep pendingAction for the next step
   }
   if (player.caste === 'scout') {
-    const last = player.pathHistory[player.pathHistory.length - 1];
-    if (!last || last.x !== player.tileX || last.y !== player.tileY) {
-      player.pathHistory.push({ x: player.tileX, y: player.tileY });
-      if (player.pathHistory.length > 400) player.pathHistory.shift();
-    }
-    if (foodAt(state, player.tileX, player.tileY)) layScentTrail(state, hud);
+    const wasActive = player.scentActive;
+    updateScent(state, player);
+    if (player.scentActive && !wasActive) spawnFloatingText(state, player, 'found something!', '#9be89b');
+    if (player.scentActive) updateHud(state, hud);
   }
 }

@@ -54,7 +54,8 @@ export interface Player extends Actor {
   caste: CasteKey | null;
   carryingType: CarryType | null;
   pendingAction: PendingAction | null;
-  pathHistory: Point[];
+  scentActive: boolean;
+  scentOrigin: Point | null;
   attackTarget: Enemy | null;
   lastAttack: number;
   hp: number;
@@ -92,7 +93,8 @@ export interface Colonist extends Actor {
   aggroUntil: number;
   flashUntil: number;
   exploreTarget: Point | null;
-  pathHistory: Point[];
+  scentActive: boolean;
+  scentOrigin: Point | null;
   digTile: Point | null;
 }
 
@@ -164,6 +166,7 @@ export interface GameState {
   nest: Nest;
   player: Player;
   scentTrail: Set<string>;
+  scentTrailSource: Map<string, Point>;
   floatingTexts: FloatingText[];
 
   zoomIndex: number;

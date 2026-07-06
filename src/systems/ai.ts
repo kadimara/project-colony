@@ -7,10 +7,10 @@ import {
   ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
   NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
-  SCOUT_EXPLORE_MIN_DIST, SCOUT_PATH_HISTORY_MAX,
+  SCOUT_EXPLORE_MIN_DIST,
 } from '../constants';
 import {
-  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, spawnFloatingText,
+  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, spawnFloatingText, updateScent,
 } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
@@ -110,9 +110,13 @@ export function updateEnemy(state: GameState, hud: HudRefs, enemy: Enemy, now: n
   }
 }
 
-// ---- colonist AI: workers forage food back toward the nest, soldiers fight
-// nearby enemies, scouts roam far afield and lay a scent trail to any food
-// they cross, exactly like a player-controlled scout does ----
+// ---- colonist AI: workers forage food back toward the nest (their own
+// forage radius, or a food source they've noticed via a scent trail),
+// soldiers fight nearby enemies, scouts roam far afield, get pulled toward
+// any food that comes within forage radius, then commit to a straight shot
+// back to the nest laying scent the whole way once they find it — unlike a
+// player-controlled scout, which gets the same scent on/off toggle but is
+// never auto-piloted; the player keeps walking manually the whole time ----
 function attemptColonistAttack(state: GameState, hud: HudRefs, colonist: Colonist, now: number): void {
   const t = colonist.aggroTarget;
   if (!t || t.hp <= 0) return;
@@ -131,6 +135,42 @@ function nearestEnemyTo(state: GameState, x: number, y: number, radius: number):
     if (en.hp <= 0) continue;
     const d = Math.hypot(en.tileX - x, en.tileY - y);
     if (d <= radius && d < bestDist) { best = en; bestDist = d; }
+  }
+  return best;
+}
+
+// nearest food within radius of (x,y), excluding food already close enough
+// to the nest to fuel spawning and food sitting exactly at (x,y) — the
+// latter matters for scouts, which never remove food from state.foodItems,
+// so once one is standing on a food tile it must look past that tile to
+// notice the next one in a cluster. Scouts also pass excludeScented=true so
+// they don't keep re-discovering (and re-round-tripping to) food that
+// already has a trail leading to it — that food's already reported; it's a
+// worker's job to actually go fetch it, however long that takes
+function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false): FoodItem | null {
+  let best: FoodItem | null = null, bestDist = Infinity;
+  for (const f of state.foodItems) {
+    if (f.x === x && f.y === y) continue;
+    if (nestDistance(state, f.x, f.y) <= NEST_FOOD_RADIUS) continue;
+    if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
+    const d = Math.hypot(f.x - x, f.y - y);
+    if (d <= radius && d < bestDist) { best = f; bestDist = d; }
+  }
+  return best;
+}
+
+// extends a worker's food awareness beyond COLONIST_FORAGE_RADIUS: if a
+// scent-trail tile is within range, treat the food at that trail's origin
+// as spotted too (as long as it's still actually there)
+function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
+  let best: FoodItem | null = null, bestDist = Infinity;
+  for (const key of state.scentTrail) {
+    const [tx, ty] = key.split(',').map(Number);
+    const d = Math.hypot(tx - x, ty - y);
+    if (d > radius || d >= bestDist) continue;
+    const origin = state.scentTrailSource.get(key);
+    if (!origin || !foodAt(state, origin.x, origin.y)) continue;
+    best = origin; bestDist = d;
   }
   return best;
 }
@@ -204,13 +244,8 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
     // not carrying: look for food outside the nest's radius (no point
     // hauling food that's already close enough to fuel production)
     if (!colonist.forageTarget || !foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)) {
-      let best: FoodItem | null = null, bestDist = Infinity;
-      for (const f of state.foodItems) {
-        if (nestDistance(state, f.x, f.y) <= NEST_FOOD_RADIUS) continue;
-        const d = Math.hypot(f.x - colonist.tileX, f.y - colonist.tileY);
-        if (d <= COLONIST_FORAGE_RADIUS && d < bestDist) { best = f; bestDist = d; }
-      }
-      colonist.forageTarget = best;
+      colonist.forageTarget = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS)
+        ?? nearestFoodViaTrail(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
       colonist.path = [];
     }
     if (colonist.forageTarget) {
@@ -242,18 +277,32 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
       colonist.digTile = null;
     }
 
-    const last = colonist.pathHistory[colonist.pathHistory.length - 1];
-    if (!last || last.x !== colonist.tileX || last.y !== colonist.tileY) {
-      colonist.pathHistory.push({ x: colonist.tileX, y: colonist.tileY });
-      if (colonist.pathHistory.length > SCOUT_PATH_HISTORY_MAX) colonist.pathHistory.shift();
-    }
-    if (foodAt(state, colonist.tileX, colonist.tileY)) {
-      for (const t of colonist.pathHistory) state.scentTrail.add(t.x + ',' + t.y);
-      colonist.pathHistory = [{ x: colonist.tileX, y: colonist.tileY }];
-    }
-    if (colonist.path.length === 0) {
-      const found = pickExploreTarget(state, colonist, walkable);
-      if (found) { colonist.exploreTarget = found.target; colonist.path = found.path; }
+    updateScent(state, colonist);
+
+    if (colonist.scentActive) {
+      // returning to the nest, laying scent the whole way — ignore food until home
+      colonist.forageTarget = null;
+      if (colonist.path.length === 0) {
+        const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, NEST_FOOD_RADIUS - 1);
+        const path = spot ? findWeightedPath(colonist.tileX, colonist.tileY, spot.x, spot.y, (x, y) => scoutCost(state, x, y)) : [];
+        if (path.length) { colonist.exploreTarget = spot; colonist.path = path; }
+      }
+    } else {
+      // roam: pulled toward nearby food, else random explore
+      if (colonist.forageTarget && (!foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y) || colonist.path.length === 0)) {
+        colonist.forageTarget = null;
+      }
+      if (!colonist.forageTarget) {
+        const pull = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, true);
+        if (pull) {
+          const path = findWeightedPath(colonist.tileX, colonist.tileY, pull.x, pull.y, (x, y) => scoutCost(state, x, y));
+          if (path.length) { colonist.forageTarget = pull; colonist.exploreTarget = pull; colonist.path = path; }
+        }
+      }
+      if (!colonist.forageTarget && colonist.path.length === 0) {
+        const found = pickExploreTarget(state, colonist, walkable);
+        if (found) { colonist.exploreTarget = found.target; colonist.path = found.path; }
+      }
     }
     if (colonist.path.length) {
       const next = colonist.path.shift()!;
