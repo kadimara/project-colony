@@ -119,6 +119,8 @@ export interface GameRefs {
   ctx: CanvasRenderingContext2D;
   worldCanvas: HTMLCanvasElement;
   worldCtx: CanvasRenderingContext2D;
+  groundAtlas: HTMLCanvasElement;
+  groundAtlasCtx: CanvasRenderingContext2D;
 }
 
 // DOM element refs for the HUD stat bar and the caste/nest/world-map overlays

@@ -10,7 +10,8 @@ import {
   SCOUT_EXPLORE_MIN_DIST,
 } from '../constants';
 import {
-  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, spawnFloatingText, updateScent,
+  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, setWall, spawnFloatingText,
+  updateScent,
 } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
@@ -273,7 +274,7 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
     // standing on a dug tile means it's about to move on — put the wall
     // block back down now that it's leaving
     if (colonist.digTile) {
-      state.wallSet.add(colonist.digTile.x + ',' + colonist.digTile.y);
+      setWall(state, colonist.digTile.x, colonist.digTile.y, true);
       colonist.digTile = null;
     }
 
@@ -311,7 +312,7 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
         colonist.moveDur = COLONIST_MOVE_DUR.scout;
         startStep(colonist, next.x, next.y, dir);
       } else if (isWall(state, next.x, next.y)) {
-        state.wallSet.delete(next.x + ',' + next.y);
+        setWall(state, next.x, next.y, false);
         colonist.digTile = { x: next.x, y: next.y };
         colonist.moveDur = SCOUT_DIG_MOVE_DUR;
         startStep(colonist, next.x, next.y, dir);

@@ -10,6 +10,7 @@ import {
   SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
+import { buildGroundAtlas, patchGroundAtlasTile } from '../render/ground-atlas';
 
 export function terrainWalkable(state: GameState, x: number, y: number): boolean {
   if (x < 0 || y < 0 || y >= state.map.length || x >= state.map[0].length) return false;
@@ -18,6 +19,12 @@ export function terrainWalkable(state: GameState, x: number, y: number): boolean
 
 export function isWall(state: GameState, x: number, y: number): boolean {
   return state.wallSet.has(x + ',' + y);
+}
+
+export function setWall(state: GameState, x: number, y: number, solid: boolean): void {
+  const key = x + ',' + y;
+  if (solid) state.wallSet.add(key); else state.wallSet.delete(key);
+  patchGroundAtlasTile(state.refs, state.map, x, y, solid);
 }
 
 export function obstacleAt(state: GameState, x: number, y: number): Point | null {
@@ -139,6 +146,7 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   state.rng = mulberry32(newSeed);
 
   state.wallSet = buildWalls(newSeed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
+  buildGroundAtlas(state.refs, state.map, state.wallSet);
   state.foodItems.length = 0;
   for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
   spawnEnemies(state);
@@ -201,6 +209,7 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
     hoveredTile: null,
   };
 
+  buildGroundAtlas(refs, map, wallSet);
   for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
   spawnEnemies(state);
 

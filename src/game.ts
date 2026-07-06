@@ -2,7 +2,7 @@
 // listener, and drives the tick/render loop. Behavior itself lives in the
 // other modules — this file only connects them.
 import type { CasteKey, GameRefs } from './types/types';
-import { DEFAULT_ZOOM_INDEX, MAP_H, MAP_W, WORLD_TILE } from './constants';
+import { DEFAULT_ZOOM_INDEX, MAP_H, MAP_W, TILE, WORLD_TILE } from './constants';
 import {
   createGameState, foodAt, isNestAt, obstacleAt, regenerateWorld, walkable as stateWalkable,
 } from './state/state';
@@ -34,7 +34,13 @@ export function initColonyGame(): void {
   const worldCtx = worldCanvas.getContext('2d')!;
   worldCtx.imageSmoothingEnabled = false;
 
-  const refs: GameRefs = { canvas, ctx, worldCanvas, worldCtx };
+  const groundAtlas = document.createElement('canvas');
+  groundAtlas.width = MAP_W * TILE;
+  groundAtlas.height = MAP_H * TILE;
+  const groundAtlasCtx = groundAtlas.getContext('2d')!;
+  groundAtlasCtx.imageSmoothingEnabled = false;
+
+  const refs: GameRefs = { canvas, ctx, worldCanvas, worldCtx, groundAtlas, groundAtlasCtx };
   const state = createGameState(refs, spawnEnemies);
   const hud = createHudRefs();
 

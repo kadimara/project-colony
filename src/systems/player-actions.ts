@@ -6,7 +6,8 @@ import {
   CASTES, SCOUT_DIG_MOVE_DUR, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, spawnFloatingText, terrainWalkable, updateScent,
+  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, setWall, spawnFloatingText, terrainWalkable,
+  updateScent,
 } from '../state/state';
 import { startStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, isAdjacent, type Walkable } from './pathfinding';
@@ -26,7 +27,7 @@ export function tryPlayerStep(state: GameState, nx: number, ny: number, dir: Dir
     return true;
   }
   if (player.caste === 'scout' && isWall(state, nx, ny)) {
-    state.wallSet.delete(nx + ',' + ny);
+    setWall(state, nx, ny, false);
     player.digTile = { x: nx, y: ny };
     player.moveDur = SCOUT_DIG_MOVE_DUR;
     startStep(player, nx, ny, dir);
@@ -66,12 +67,12 @@ export function applyCaste(state: GameState, hud: HudRefs, casteKey: CasteKey, r
   // mid-tunnel and switching away from scout (or resetting position) — put
   // the wall block back down rather than leaving a permanent hole
   if (player.digTile) {
-    state.wallSet.add(player.digTile.x + ',' + player.digTile.y);
+    setWall(state, player.digTile.x, player.digTile.y, true);
     player.digTile = null;
   }
 
   if (player.carryingType && !isWall(state, player.tileX, player.tileY) && !foodAt(state, player.tileX, player.tileY)) {
-    if (player.carryingType === 'obstacle') state.wallSet.add(player.tileX + ',' + player.tileY);
+    if (player.carryingType === 'obstacle') setWall(state, player.tileX, player.tileY, true);
     else state.foodItems.push({ x: player.tileX, y: player.tileY });
   }
   player.carryingType = null;
@@ -93,7 +94,7 @@ export function doPickup(state: GameState, hud: HudRefs, x: number, y: number, k
   const { player } = state;
   if (kind === 'obstacle') {
     if (!isWall(state, x, y)) return;
-    state.wallSet.delete(x + ',' + y);
+    setWall(state, x, y, false);
   } else {
     const idx = state.foodItems.findIndex((f) => f.x === x && f.y === y);
     if (idx === -1) return;
@@ -107,7 +108,7 @@ export function doPickup(state: GameState, hud: HudRefs, x: number, y: number, k
 export function doPlace(state: GameState, hud: HudRefs, x: number, y: number): void {
   const { player } = state;
   if (!terrainWalkable(state, x, y) || isWall(state, x, y) || foodAt(state, x, y) || isEnemyAt(state, x, y) || isNestAt(state, x, y) || isColonistAt(state, x, y)) return;
-  if (player.carryingType === 'obstacle') state.wallSet.add(x + ',' + y);
+  if (player.carryingType === 'obstacle') setWall(state, x, y, true);
   else if (player.carryingType === 'food') state.foodItems.push({ x, y });
   spawnFloatingText(state, player, 'placed ' + player.carryingType, '#ecdfc4');
   player.carryingType = null;
@@ -157,7 +158,7 @@ export function onPlayerArrived(state: GameState, hud: HudRefs): void {
   // standing on a dug tile means the player is about to move on — put the
   // wall block back down now that they're leaving it
   if (player.digTile) {
-    state.wallSet.add(player.digTile.x + ',' + player.digTile.y);
+    setWall(state, player.digTile.x, player.digTile.y, true);
     player.digTile = null;
   }
   if (player.pendingAction) {

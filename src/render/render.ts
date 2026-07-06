@@ -6,7 +6,7 @@ import { CASTES, MAP_H, MAP_W, NEST_FOOD_RADIUS, NEST_SIZE, TILE, WORLD_TILE } f
 import { getClampedCamX, getClampedCamY } from './camera';
 import { isColonistAt, isNestAt, isWall, nestCells, nestDistance, obstacleAt } from '../state/state';
 import { DIRT } from '../worldgen/worldgen';
-import { drawHpBar, drawNest, drawNestRadius, drawObstacle, drawSquareEntity, drawTile } from './rendering';
+import { drawHpBar, drawNest, drawNestRadius, drawSquareEntity, drawTile } from './rendering';
 
 export function renderWorldMap(state: GameState): void {
   const { worldCanvas, worldCtx } = state.refs;
@@ -47,20 +47,11 @@ export function render(state: GameState, now: number): void {
   const { canvas, ctx } = state.refs;
   const { player } = state;
   const camX = getClampedCamX(state), camY = getClampedCamY(state);
-  ctx.fillStyle = '#0a0806';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const startCol = Math.floor(camX / TILE), startRow = Math.floor(camY / TILE);
-  const offX = -(camX - startCol * TILE), offY = -(camY - startRow * TILE);
-  for (let r = 0; r < state.VP_H + 2; r++) {
-    for (let c = 0; c < state.VP_W + 2; c++) {
-      const mx = startCol + c, my = startRow + r;
-      if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) continue;
-      const sx = offX + c * TILE, sy = offY + r * TILE;
-      if (isWall(state, mx, my)) drawObstacle(ctx, TILE, sx, sy);
-      else drawTile(ctx, TILE, state.map[my][mx], sx, sy);
-    }
-  }
+  ctx.drawImage(
+    state.refs.groundAtlas,
+    camX, camY, canvas.width, canvas.height,
+    0, 0, canvas.width, canvas.height,
+  );
 
   // nest food-radius overlay (under everything else on the ground, like the scent trail)
   {

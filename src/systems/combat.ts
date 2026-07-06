@@ -7,7 +7,7 @@ import {
   PLAYER_HIT_INVULN_MS, PLAYER_RESPAWN_INVULN_MS, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, spawnFloatingText, terrainWalkable,
+  foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, setWall, spawnFloatingText, terrainWalkable,
 } from '../state/state';
 import { showToast, updateHud } from '../ui/hud';
 
@@ -45,7 +45,7 @@ function killColonist(state: GameState, hud: HudRefs, colonist: Colonist): void 
   // a scout caught mid-tunnel is carrying a wall block — put it back before
   // dropping food, so food never lands on top of a now-solid wall tile
   if (colonist.digTile) {
-    state.wallSet.add(colonist.digTile.x + ',' + colonist.digTile.y);
+    setWall(state, colonist.digTile.x, colonist.digTile.y, true);
     colonist.digTile = null;
   }
   spawnFloatingText(state, { px: colonist.tileX * TILE, py: colonist.tileY * TILE }, 'defeated!', '#c1633c');
@@ -82,7 +82,7 @@ export function damagePlayer(state: GameState, hud: HudRefs, amount: number, now
     // a scout caught mid-tunnel is carrying a wall block — put it back
     // before dropping food, so food never lands on top of a now-solid tile
     if (player.digTile) {
-      state.wallSet.add(player.digTile.x + ',' + player.digTile.y);
+      setWall(state, player.digTile.x, player.digTile.y, true);
       player.digTile = null;
     }
     dropFoodOnDeath(state, player.tileX, player.tileY);
