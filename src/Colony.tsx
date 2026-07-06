@@ -91,7 +91,7 @@ function Colony() {
         <span className="key">click / tap</span> to move &nbsp;·&nbsp;
         <span className="key">WASD</span> / arrows also work &nbsp;·&nbsp;
         <b>Worker</b>: click an obstacle or food to pick it up, click open ground to set it back down &nbsp;·&nbsp;
-        <b>Scout</b>: walk to food and it lays a scent trail along the path it took to get there &nbsp;·&nbsp;
+        <b>Scout</b>: walk to food and it lays a scent trail along the path it took to get there, and can tunnel through walls (slower) to reach sealed-off pockets &nbsp;·&nbsp;
         <b>Soldier</b>: bigger — click a nearby enemy to attack it &nbsp;·&nbsp;
         <span className="key">C</span> or the button switches your caste anytime, keeping your position &nbsp;·&nbsp;
         scroll or <span className="key">+</span> <span className="key">&minus;</span> to zoom, <span className="key">M</span> for the world map &nbsp;·&nbsp;

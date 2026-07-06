@@ -6,12 +6,11 @@ import {
   COLONIST_MOVE_DUR, COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
   ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
-  NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_DIG_COST, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
+  NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
   SCOUT_EXPLORE_MIN_DIST, SCOUT_PATH_HISTORY_MAX,
 } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, nestDistance, playerInNestRadius,
-  randomOpenTileNear, spawnFloatingText, terrainWalkable,
+  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, spawnFloatingText,
 } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
@@ -134,17 +133,6 @@ function nearestEnemyTo(state: GameState, x: number, y: number, radius: number):
     if (d <= radius && d < bestDist) { best = en; bestDist = d; }
   }
   return best;
-}
-
-// cost for a scout to enter (x,y): open ground is cheap, a wall tile can be
-// tunneled through at a steep price, anything else (bounds/nest/an entity)
-// stays impassable — Dijkstra then naturally prefers all-open routes and
-// only pays to dig when there's no cheaper way, or the target is otherwise
-// unreachable at all
-function scoutCost(state: GameState, x: number, y: number): number | null {
-  if (!terrainWalkable(state, x, y)) return null;
-  if (isEnemyAt(state, x, y) || isNestAt(state, x, y) || isColonistAt(state, x, y) || isPlayerAt(state, x, y)) return null;
-  return isWall(state, x, y) ? SCOUT_DIG_COST : 1;
 }
 
 // picks a random far-off point to roam toward, in a random direction and

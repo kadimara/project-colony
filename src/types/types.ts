@@ -60,6 +60,7 @@ export interface Player extends Actor {
   hp: number;
   maxHp: number;
   invulnUntil: number;
+  digTile: Point | null;
 }
 
 export type Target =

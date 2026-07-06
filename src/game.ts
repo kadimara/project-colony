@@ -8,9 +8,10 @@ import {
 } from './state/state';
 import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './entities/entities';
 import { applyZoom, screenToTile } from './render/camera';
-import { bfsToAdjacent, findPath, isAdjacent } from './systems/pathfinding';
+import { bfsToAdjacent, isAdjacent } from './systems/pathfinding';
 import {
-  applyCaste, attemptSoldierAttack, onPlayerArrived, tryMove, tryPlaceAt, trySelectPickup,
+  applyCaste, attemptSoldierAttack, computeClickPath, onPlayerArrived, tryMove, tryPlaceAt, tryPlayerStep,
+  trySelectPickup,
 } from './systems/player-actions';
 import { heldDir, setupPlayerInput } from './input/player-input';
 import { startNestSpawn, updateColonist, updateEnemy, updateNest } from './systems/ai';
@@ -94,7 +95,7 @@ export function initColonyGame(): void {
       }
     }
 
-    const path = findPath(player.tileX, player.tileY, x, y, walkableFn);
+    const path = computeClickPath(state, x, y, walkableFn);
     if (path.length) { player.pendingAction = null; player.attackTarget = null; player.path = path; }
   });
 
@@ -171,8 +172,8 @@ export function initColonyGame(): void {
           }
         } else if (player.path.length) {
           const next = player.path.shift()!;
-          if (walkableFn(next.x, next.y)) startStep(player, next.x, next.y, dirBetween(player.tileX, player.tileY, next.x, next.y));
-          else player.path = [];
+          const dir = dirBetween(player.tileX, player.tileY, next.x, next.y);
+          if (!tryPlayerStep(state, next.x, next.y, dir, walkableFn)) player.path = [];
         }
       }
     }

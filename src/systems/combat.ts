@@ -79,6 +79,12 @@ export function damagePlayer(state: GameState, hud: HudRefs, amount: number, now
   spawnFloatingText(state, player, '-' + amount, '#e05c5c');
   updateHud(state, hud);
   if (player.hp <= 0) {
+    // a scout caught mid-tunnel is carrying a wall block — put it back
+    // before dropping food, so food never lands on top of a now-solid tile
+    if (player.digTile) {
+      state.wallSet.add(player.digTile.x + ',' + player.digTile.y);
+      player.digTile = null;
+    }
     dropFoodOnDeath(state, player.tileX, player.tileY);
     showToast(hud, 'You were defeated — respawning');
     respawnPlayer(state, hud, now);

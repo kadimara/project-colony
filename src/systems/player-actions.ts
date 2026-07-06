@@ -1,24 +1,60 @@
 // Player action resolution: movement, the worker's pickup/place, the
 // scout's scent trail, the soldier's attack, and caste switching. Raw key
 // tracking (which keys are currently held) lives in input/player-input.ts.
-import type { CarryType, CasteKey, Dir, GameState, HudRefs } from '../types/types';
-import { CASTES, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE } from '../constants';
+import type { CarryType, CasteKey, Dir, GameState, HudRefs, Point } from '../types/types';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, spawnFloatingText, terrainWalkable,
+  CASTES, SCOUT_DIG_MOVE_DUR, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE,
+} from '../constants';
+import {
+  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, spawnFloatingText, terrainWalkable,
 } from '../state/state';
 import { startStep } from '../entities/entities';
-import { bfsToAdjacent, isAdjacent } from './pathfinding';
+import { bfsToAdjacent, findPath, findWeightedPath, isAdjacent, type Walkable } from './pathfinding';
 import { killEnemy } from './combat';
 import { updateHud } from '../ui/hud';
 
-export function tryMove(state: GameState, dir: Dir, walkable: (x: number, y: number) => boolean): void {
+// advances the player one tile: a normal step onto open ground, or — for a
+// scout — a dig step through a wall tile (removed now, restored once the
+// player leaves it; see onPlayerArrived). Returns false if the tile is
+// blocked outright, so callers can bail out of whatever path they were
+// following.
+export function tryPlayerStep(state: GameState, nx: number, ny: number, dir: Dir, walkable: Walkable): boolean {
+  const { player } = state;
+  if (walkable(nx, ny)) {
+    player.moveDur = CASTES[player.caste!].moveDur;
+    startStep(player, nx, ny, dir);
+    return true;
+  }
+  if (player.caste === 'scout' && isWall(state, nx, ny)) {
+    state.wallSet.delete(nx + ',' + ny);
+    player.digTile = { x: nx, y: ny };
+    player.moveDur = SCOUT_DIG_MOVE_DUR;
+    startStep(player, nx, ny, dir);
+    return true;
+  }
+  return false;
+}
+
+export function tryMove(state: GameState, dir: Dir, walkable: Walkable): void {
   let dx = 0, dy = 0;
   if (dir === 'up') dy = -1; else if (dir === 'down') dy = 1;
   else if (dir === 'left') dx = -1; else if (dir === 'right') dx = 1;
   const { player } = state;
-  const nx = player.tileX + dx, ny = player.tileY + dy;
-  if (!walkable(nx, ny)) return;
-  startStep(player, nx, ny, dir);
+  tryPlayerStep(state, player.tileX + dx, player.tileY + dy, dir, walkable);
+}
+
+// computes where a click-to-move should walk the player: a scout may tunnel
+// through walls along the way (via the weighted pathfinder shared with the
+// scout colonist AI), but the destination itself must be real open ground —
+// otherwise the player would path onto a wall tile and get resealed inside
+// it the instant they "arrive" (see onPlayerArrived)
+export function computeClickPath(state: GameState, x: number, y: number, walkable: Walkable): Point[] {
+  const { player } = state;
+  if (player.caste === 'scout') {
+    if (!walkable(x, y)) return [];
+    return findWeightedPath(player.tileX, player.tileY, x, y, (px, py) => scoutCost(state, px, py));
+  }
+  return findPath(player.tileX, player.tileY, x, y, walkable);
 }
 
 // switching away while carrying something drops it right where you're
@@ -26,6 +62,13 @@ export function tryMove(state: GameState, dir: Dir, walkable: (x: number, y: num
 export function applyCaste(state: GameState, hud: HudRefs, casteKey: CasteKey, resetPosition: boolean): void {
   const { player } = state;
   const def = CASTES[casteKey];
+
+  // mid-tunnel and switching away from scout (or resetting position) — put
+  // the wall block back down rather than leaving a permanent hole
+  if (player.digTile) {
+    state.wallSet.add(player.digTile.x + ',' + player.digTile.y);
+    player.digTile = null;
+  }
 
   if (player.carryingType && !isWall(state, player.tileX, player.tileY) && !foodAt(state, player.tileX, player.tileY)) {
     if (player.carryingType === 'obstacle') state.wallSet.add(player.tileX + ',' + player.tileY);
@@ -122,6 +165,12 @@ export function attemptSoldierAttack(state: GameState, hud: HudRefs, now: number
 
 export function onPlayerArrived(state: GameState, hud: HudRefs): void {
   const { player } = state;
+  // standing on a dug tile means the player is about to move on — put the
+  // wall block back down now that they're leaving it
+  if (player.digTile) {
+    state.wallSet.add(player.digTile.x + ',' + player.digTile.y);
+    player.digTile = null;
+  }
   if (player.pendingAction) {
     const pa = player.pendingAction;
     if (isAdjacent(player.tileX, player.tileY, pa.x, pa.y)) {
