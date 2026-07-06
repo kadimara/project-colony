@@ -68,6 +68,12 @@ export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_WANDER_RADIUS = 4;
 export const COLONIST_REPATH_MS = 500;
 
+// ---- scouts: roam far from the nest and lay a scent trail whenever they
+// stumble across food, same as a player-controlled scout ----
+export const SCOUT_EXPLORE_MIN_DIST = 8;
+export const SCOUT_EXPLORE_MAX_DIST = 20;
+export const SCOUT_PATH_HISTORY_MAX = 400;
+
 export const CASTE_DESCRIPTIONS: Record<CasteKey, string> = {
   worker: 'Pick up and relocate obstacles and food',
   soldier: 'Bigger. Attacks enemies',

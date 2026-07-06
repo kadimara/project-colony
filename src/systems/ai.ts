@@ -1,12 +1,12 @@
 // Enemy + colonist AI: wander/chase/attack behavior, targeting, and nest
 // production (spawning a new colonist once the player requests one).
-import type { Colonist, Enemy, FoodItem, GameState, HudRefs, Target } from '../types/types';
+import type { Colonist, Enemy, FoodItem, GameState, HudRefs, Point, Target } from '../types/types';
 import {
   CASTES, COLONIST_AGGRO_RADIUS, COLONIST_ATK_COOLDOWN, COLONIST_ATK_DAMAGE, COLONIST_FORAGE_RADIUS,
   COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
   ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
-  NEST_FOOD_RADIUS, NEST_INCUBATE_MS,
+  NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_EXPLORE_MAX_DIST, SCOUT_EXPLORE_MIN_DIST, SCOUT_PATH_HISTORY_MAX,
 } from '../constants';
 import {
   foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, spawnFloatingText,
@@ -109,7 +109,9 @@ export function updateEnemy(state: GameState, hud: HudRefs, enemy: Enemy, now: n
   }
 }
 
-// ---- colonist AI: workers forage food back toward the nest, soldiers fight nearby enemies ----
+// ---- colonist AI: workers forage food back toward the nest, soldiers fight
+// nearby enemies, scouts roam far afield and lay a scent trail to any food
+// they cross, exactly like a player-controlled scout does ----
 function attemptColonistAttack(state: GameState, hud: HudRefs, colonist: Colonist, now: number): void {
   const t = colonist.aggroTarget;
   if (!t || t.hp <= 0) return;
@@ -130,6 +132,21 @@ function nearestEnemyTo(state: GameState, x: number, y: number, radius: number):
     if (d <= radius && d < bestDist) { best = en; bestDist = d; }
   }
   return best;
+}
+
+// picks a random far-off point to roam toward, in a random direction and
+// distance band, and returns a path to it (or null if nothing panned out)
+function pickExploreTarget(colonist: Colonist, walkable: Walkable): { target: Point; path: Point[] } | null {
+  for (let tries = 0; tries < 10; tries++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = SCOUT_EXPLORE_MIN_DIST + Math.random() * (SCOUT_EXPLORE_MAX_DIST - SCOUT_EXPLORE_MIN_DIST);
+    const tx = Math.round(colonist.tileX + Math.cos(angle) * dist);
+    const ty = Math.round(colonist.tileY + Math.sin(angle) * dist);
+    if (!walkable(tx, ty)) continue;
+    const path = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
+    if (path.length) return { target: { x: tx, y: ty }, path };
+  }
+  return null;
 }
 
 export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonist, now: number, walkable: Walkable): void {
@@ -214,7 +231,29 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
     }
   }
 
-  // wander (default / fallback for both castes when there's nothing to do)
+  if (colonist.caste === 'scout') {
+    const last = colonist.pathHistory[colonist.pathHistory.length - 1];
+    if (!last || last.x !== colonist.tileX || last.y !== colonist.tileY) {
+      colonist.pathHistory.push({ x: colonist.tileX, y: colonist.tileY });
+      if (colonist.pathHistory.length > SCOUT_PATH_HISTORY_MAX) colonist.pathHistory.shift();
+    }
+    if (foodAt(state, colonist.tileX, colonist.tileY)) {
+      for (const t of colonist.pathHistory) state.scentTrail.add(t.x + ',' + t.y);
+      colonist.pathHistory = [{ x: colonist.tileX, y: colonist.tileY }];
+    }
+    if (colonist.path.length === 0) {
+      const found = pickExploreTarget(colonist, walkable);
+      if (found) { colonist.exploreTarget = found.target; colonist.path = found.path; }
+    }
+    if (colonist.path.length) {
+      const next = colonist.path.shift()!;
+      if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      else { colonist.path = []; colonist.exploreTarget = null; }
+    }
+    return;
+  }
+
+  // wander (fallback for workers/soldiers when there's nothing to do)
   if (now >= colonist.nextWanderAt && colonist.path.length === 0) {
     const tx = colonist.tileX + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
     const ty = colonist.tileY + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;

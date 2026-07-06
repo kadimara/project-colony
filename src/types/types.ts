@@ -90,6 +90,8 @@ export interface Colonist extends Actor {
   lastAttack: number;
   aggroUntil: number;
   flashUntil: number;
+  exploreTarget: Point | null;
+  pathHistory: Point[];
 }
 
 export interface Nest {
