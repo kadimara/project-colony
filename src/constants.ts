@@ -68,6 +68,20 @@ export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_WANDER_RADIUS = 4;
 export const COLONIST_REPATH_MS = 500;
 
+// ---- scouts: roam far from the nest, detour toward any food that comes
+// within COLONIST_FORAGE_RADIUS, then commit to a straight shot back to the
+// nest laying scent the whole way once they find it — a player-controlled
+// scout gets the same scent on/off toggle but is never auto-piloted there ----
+export const SCOUT_EXPLORE_MIN_DIST = 8;
+export const SCOUT_EXPLORE_MAX_DIST = 20;
+
+// scouts can tunnel through a wall tile (removing it, then restoring it once
+// they've moved past) to reach pockets otherwise sealed off entirely — the
+// weighted pathfinder only pays this cost when there's no cheaper all-open
+// route, or the destination is unreachable any other way
+export const SCOUT_DIG_COST = 10;
+export const SCOUT_DIG_MOVE_DUR = COLONIST_MOVE_DUR.scout * 3;
+
 export const CASTE_DESCRIPTIONS: Record<CasteKey, string> = {
   worker: 'Pick up and relocate obstacles and food',
   soldier: 'Bigger. Attacks enemies',
