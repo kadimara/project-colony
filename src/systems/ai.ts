@@ -3,16 +3,18 @@
 import type { Colonist, Enemy, FoodItem, GameState, HudRefs, Point, Target } from '../types/types';
 import {
   CASTES, COLONIST_AGGRO_RADIUS, COLONIST_ATK_COOLDOWN, COLONIST_ATK_DAMAGE, COLONIST_FORAGE_RADIUS,
-  COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
+  COLONIST_MOVE_DUR, COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
   ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
-  NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_EXPLORE_MAX_DIST, SCOUT_EXPLORE_MIN_DIST, SCOUT_PATH_HISTORY_MAX,
+  NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_DIG_COST, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
+  SCOUT_EXPLORE_MIN_DIST, SCOUT_PATH_HISTORY_MAX,
 } from '../constants';
 import {
-  foodAt, isWall, nestDistance, playerInNestRadius, randomOpenTileNear, spawnFloatingText,
+  foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, nestDistance, playerInNestRadius,
+  randomOpenTileNear, spawnFloatingText, terrainWalkable,
 } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
-import { bfsToAdjacent, findPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
+import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
 import { damageColonist, damagePlayer, killEnemy } from './combat';
 import { showToast, updateHud } from '../ui/hud';
 
@@ -134,16 +136,29 @@ function nearestEnemyTo(state: GameState, x: number, y: number, radius: number):
   return best;
 }
 
+// cost for a scout to enter (x,y): open ground is cheap, a wall tile can be
+// tunneled through at a steep price, anything else (bounds/nest/an entity)
+// stays impassable — Dijkstra then naturally prefers all-open routes and
+// only pays to dig when there's no cheaper way, or the target is otherwise
+// unreachable at all
+function scoutCost(state: GameState, x: number, y: number): number | null {
+  if (!terrainWalkable(state, x, y)) return null;
+  if (isEnemyAt(state, x, y) || isNestAt(state, x, y) || isColonistAt(state, x, y) || isPlayerAt(state, x, y)) return null;
+  return isWall(state, x, y) ? SCOUT_DIG_COST : 1;
+}
+
 // picks a random far-off point to roam toward, in a random direction and
-// distance band, and returns a path to it (or null if nothing panned out)
-function pickExploreTarget(colonist: Colonist, walkable: Walkable): { target: Point; path: Point[] } | null {
+// distance band, and returns a path to it (or null if nothing panned out) —
+// the path may tunnel through walls, but the target itself must be real
+// open ground
+function pickExploreTarget(state: GameState, colonist: Colonist, walkable: Walkable): { target: Point; path: Point[] } | null {
   for (let tries = 0; tries < 10; tries++) {
     const angle = Math.random() * Math.PI * 2;
     const dist = SCOUT_EXPLORE_MIN_DIST + Math.random() * (SCOUT_EXPLORE_MAX_DIST - SCOUT_EXPLORE_MIN_DIST);
     const tx = Math.round(colonist.tileX + Math.cos(angle) * dist);
     const ty = Math.round(colonist.tileY + Math.sin(angle) * dist);
     if (!walkable(tx, ty)) continue;
-    const path = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
+    const path = findWeightedPath(colonist.tileX, colonist.tileY, tx, ty, (x, y) => scoutCost(state, x, y));
     if (path.length) return { target: { x: tx, y: ty }, path };
   }
   return null;
@@ -232,6 +247,13 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
   }
 
   if (colonist.caste === 'scout') {
+    // standing on a dug tile means it's about to move on — put the wall
+    // block back down now that it's leaving
+    if (colonist.digTile) {
+      state.wallSet.add(colonist.digTile.x + ',' + colonist.digTile.y);
+      colonist.digTile = null;
+    }
+
     const last = colonist.pathHistory[colonist.pathHistory.length - 1];
     if (!last || last.x !== colonist.tileX || last.y !== colonist.tileY) {
       colonist.pathHistory.push({ x: colonist.tileX, y: colonist.tileY });
@@ -242,13 +264,23 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
       colonist.pathHistory = [{ x: colonist.tileX, y: colonist.tileY }];
     }
     if (colonist.path.length === 0) {
-      const found = pickExploreTarget(colonist, walkable);
+      const found = pickExploreTarget(state, colonist, walkable);
       if (found) { colonist.exploreTarget = found.target; colonist.path = found.path; }
     }
     if (colonist.path.length) {
       const next = colonist.path.shift()!;
-      if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
-      else { colonist.path = []; colonist.exploreTarget = null; }
+      const dir = dirBetween(colonist.tileX, colonist.tileY, next.x, next.y);
+      if (walkable(next.x, next.y)) {
+        colonist.moveDur = COLONIST_MOVE_DUR.scout;
+        startStep(colonist, next.x, next.y, dir);
+      } else if (isWall(state, next.x, next.y)) {
+        state.wallSet.delete(next.x + ',' + next.y);
+        colonist.digTile = { x: next.x, y: next.y };
+        colonist.moveDur = SCOUT_DIG_MOVE_DUR;
+        startStep(colonist, next.x, next.y, dir);
+      } else {
+        colonist.path = []; colonist.exploreTarget = null;
+      }
     }
     return;
   }

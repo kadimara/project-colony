@@ -74,6 +74,13 @@ export const SCOUT_EXPLORE_MIN_DIST = 8;
 export const SCOUT_EXPLORE_MAX_DIST = 20;
 export const SCOUT_PATH_HISTORY_MAX = 400;
 
+// scouts can tunnel through a wall tile (removing it, then restoring it once
+// they've moved past) to reach pockets otherwise sealed off entirely — the
+// weighted pathfinder only pays this cost when there's no cheaper all-open
+// route, or the destination is unreachable any other way
+export const SCOUT_DIG_COST = 10;
+export const SCOUT_DIG_MOVE_DUR = COLONIST_MOVE_DUR.scout * 3;
+
 export const CASTE_DESCRIPTIONS: Record<CasteKey, string> = {
   worker: 'Pick up and relocate obstacles and food',
   soldier: 'Bigger. Attacks enemies',

@@ -42,6 +42,12 @@ export function killEnemy(state: GameState, hud: HudRefs, enemy: Enemy): void {
 function killColonist(state: GameState, hud: HudRefs, colonist: Colonist): void {
   const idx = state.colonists.indexOf(colonist);
   if (idx !== -1) state.colonists.splice(idx, 1);
+  // a scout caught mid-tunnel is carrying a wall block — put it back before
+  // dropping food, so food never lands on top of a now-solid wall tile
+  if (colonist.digTile) {
+    state.wallSet.add(colonist.digTile.x + ',' + colonist.digTile.y);
+    colonist.digTile = null;
+  }
   spawnFloatingText(state, { px: colonist.tileX * TILE, py: colonist.tileY * TILE }, 'defeated!', '#c1633c');
   dropFoodOnDeath(state, colonist.tileX, colonist.tileY);
   updateHud(state, hud);

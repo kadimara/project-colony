@@ -92,6 +92,7 @@ export interface Colonist extends Actor {
   flashUntil: number;
   exploreTarget: Point | null;
   pathHistory: Point[];
+  digTile: Point | null;
 }
 
 export interface Nest {

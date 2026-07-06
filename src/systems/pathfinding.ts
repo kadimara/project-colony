@@ -38,6 +38,78 @@ export function findPath(startX: number, startY: number, goalX: number, goalY: n
   return path;
 }
 
+// cost of entering (x,y); null means impassable
+export type Cost = (x: number, y: number) => number | null;
+
+// weighted shortest path (Dijkstra) for callers where some tiles are
+// passable but expensive rather than a flat yes/no — e.g. a scout tunneling
+// through walls, which should still prefer an all-open route when one is
+// cheap enough. The binary heap below is kept local/inline rather than a
+// reusable module since this is the only weighted search in the game.
+export function findWeightedPath(startX: number, startY: number, goalX: number, goalY: number, cost: Cost): Point[] {
+  if (cost(goalX, goalY) === null) return [];
+  if (startX === goalX && startY === goalY) return [];
+  const key = (x: number, y: number) => x + ',' + y;
+
+  const heap: [number, number, number][] = []; // [dist, x, y]
+  const push = (item: [number, number, number]) => {
+    heap.push(item);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]]; i = p;
+    }
+  };
+  const pop = (): [number, number, number] => {
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last; let i = 0;
+      while (true) {
+        const l = 2 * i + 1, r = 2 * i + 2; let s = i;
+        if (l < heap.length && heap[l][0] < heap[s][0]) s = l;
+        if (r < heap.length && heap[r][0] < heap[s][0]) s = r;
+        if (s === i) break;
+        [heap[i], heap[s]] = [heap[s], heap[i]]; i = s;
+      }
+    }
+    return top;
+  };
+
+  const dist = new Map<string, number>([[key(startX, startY), 0]]);
+  const cameFrom = new Map<string, Point>();
+  const visited = new Set<string>();
+  const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+  push([0, startX, startY]);
+
+  while (heap.length) {
+    const [d, cx, cy] = pop();
+    const ck = key(cx, cy);
+    if (visited.has(ck)) continue;
+    visited.add(ck);
+    if (cx === goalX && cy === goalY) break;
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx, ny = cy + dy, nk = key(nx, ny);
+      if (visited.has(nk)) continue;
+      const c = cost(nx, ny);
+      if (c === null) continue;
+      const nd = d + c;
+      if (!dist.has(nk) || nd < dist.get(nk)!) {
+        dist.set(nk, nd); cameFrom.set(nk, { x: cx, y: cy }); push([nd, nx, ny]);
+      }
+    }
+  }
+
+  if (!visited.has(key(goalX, goalY))) return [];
+  const path: Point[] = []; let cur: Point | undefined = { x: goalX, y: goalY };
+  while (!(cur.x === startX && cur.y === startY)) {
+    path.push(cur); cur = cameFrom.get(key(cur.x, cur.y));
+    if (!cur) return [];
+  }
+  path.reverse();
+  return path;
+}
+
 // BFS to the nearest tile adjacent to (goalX,goalY) — used for obstacles,
 // which you can never stand on top of.
 export function bfsToAdjacent(startX: number, startY: number, goalX: number, goalY: number, walkable: Walkable): Point[] {
