@@ -91,6 +91,7 @@ export interface Colonist extends Actor {
   digTarget: Point | null;
   forageTarget: FoodItem | null;
   forageViaTrail: boolean;
+  forageBlacklist: Point | null;
   aggroTarget: Enemy | null;
   nextWanderAt: number;
   nextRepathAt: number;

@@ -35,7 +35,7 @@ function selectWorkerJob(state: GameState, colonist: Colonist): WorkerJob {
   const trailFood = nearestFoodViaTrail(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
   if (trailFood) { colonist.forageTarget = trailFood; colonist.forageViaTrail = true; return 'followTrail'; }
 
-  const spotted = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
+  const spotted = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, false, colonist.forageBlacklist);
   if (spotted) { colonist.forageTarget = spotted; colonist.forageViaTrail = false; return 'forage'; }
 
   // nothing to forage — put idle hands to work expanding the nest, unless
@@ -140,11 +140,15 @@ function runForage(state: GameState, colonist: Colonist, walkable: Walkable): vo
     const idx = state.foodItems.findIndex((fi) => fi.x === f.x && fi.y === f.y);
     if (idx !== -1) { state.foodItems.splice(idx, 1); colonist.carrying = 'food'; }
     colonist.forageTarget = null;
+    colonist.forageBlacklist = null;
     colonist.path = [];
     return;
   }
   if (colonist.path.length === 0) {
     colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, f.x, f.y, walkable);
+    // unreachable — remember it so the next selection tries the next-nearest
+    // food instead of picking this exact same (still-nearest) one right back
+    if (colonist.path.length === 0) { colonist.forageTarget = null; colonist.forageBlacklist = f; return; }
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;

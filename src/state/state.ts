@@ -161,13 +161,17 @@ export function randomOpenTileNear(state: GameState, cx: number, cy: number, rad
 // notice the next one in a cluster. Scouts also pass excludeScented=true so
 // they don't keep re-discovering (and re-round-tripping to) food that
 // already has a trail leading to it — that food's already reported; it's a
-// worker's job to actually go fetch it, however long that takes
-export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false): FoodItem | null {
+// worker's job to actually go fetch it, however long that takes. avoidPos
+// lets a worker skip a specific food tile it just found unreachable, so it
+// tries the next-nearest instead of picking the exact same one right back
+// (nearestFoodTo is plain Euclidean distance, with no reachability check).
+export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false, avoidPos?: Point | null): FoodItem | null {
   let best: FoodItem | null = null, bestDist = Infinity;
   for (const f of state.foodItems) {
     if (f.x === x && f.y === y) continue;
     if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state)) continue;
     if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
+    if (avoidPos && f.x === avoidPos.x && f.y === avoidPos.y) continue;
     const d = Math.hypot(f.x - x, f.y - y);
     if (d <= radius && d < bestDist) { best = f; bestDist = d; }
   }
