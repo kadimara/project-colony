@@ -16,22 +16,24 @@ function selectWorkerJob(state: GameState, colonist: Colonist): WorkerJob {
   if (colonist.carrying === 'food') return 'returnFood';
   if (colonist.carrying === 'obstacle') return 'returnObstacle';
 
-  // Follow Scent Trail: sticky while its target is still valid, and takes
-  // priority over plain forage every tick it's available, so workers
-  // proactively open up tunnels along trails instead of just picking off
-  // whatever food is nearest to walk to.
-  if (colonist.job === 'followTrail' && colonist.forageTarget && foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)) {
-    return 'followTrail';
+  // already committed to a target — keep pursuing it with whichever pathing
+  // it started with (forageViaTrail persists across a returnObstacle/
+  // returnFood detour, unlike colonist.job, which those jobs overwrite; using
+  // colonist.job here would make a worker abandon a trail errand it had
+  // already started digging into just because relocating a dug block carried
+  // it out of scent-trail range in the meantime)
+  if (colonist.forageTarget && foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)) {
+    return colonist.forageViaTrail ? 'followTrail' : 'forage';
   }
-  const trailFood = nearestFoodViaTrail(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
-  if (trailFood) { colonist.forageTarget = trailFood; return 'followTrail'; }
 
-  // plain self-spotted forage
-  if (colonist.job === 'forage' && colonist.forageTarget && foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)) {
-    return 'forage';
-  }
+  // Follow Scent Trail takes priority over plain forage every tick it's
+  // available, so workers proactively open up tunnels along trails instead
+  // of just picking off whatever food is nearest to walk to.
+  const trailFood = nearestFoodViaTrail(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
+  if (trailFood) { colonist.forageTarget = trailFood; colonist.forageViaTrail = true; return 'followTrail'; }
+
   const spotted = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
-  if (spotted) { colonist.forageTarget = spotted; return 'forage'; }
+  if (spotted) { colonist.forageTarget = spotted; colonist.forageViaTrail = false; return 'forage'; }
 
   colonist.forageTarget = null;
   return 'wander';
@@ -64,7 +66,8 @@ function runReturnFood(state: GameState, colonist: Colonist, walkable: Walkable)
 function runReturnObstacle(state: GameState, colonist: Colonist, walkable: Walkable): void {
   if (!colonist.dropTarget) {
     colonist.dropTarget = findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS)
-      ?? findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS * 2);
+      ?? findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS * 2)
+      ?? findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS * 4);
     colonist.path = [];
     if (!colonist.dropTarget) return; // nothing qualified this tick — try again next tick
   }

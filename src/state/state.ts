@@ -170,14 +170,29 @@ export function nearestFoodViaTrail(state: GameState, x: number, y: number, radi
   return best;
 }
 
-// picks a walkable, empty tile that borders at least one wall (a "frontier"
-// tile) and is farther from the nest than (originX,originY) — used when a
-// worker needs to relocate a dug-up obstacle block "outward," away from the
-// colony, instead of just resealing the hole it came from. Same bounded
-// random-sample-then-filter shape as randomOpenTileNear, but scans around
-// the dig site rather than the nest, and keeps the farthest-out candidate
-// found within the try budget so it drifts genuinely outward rather than
-// stopping at the very next qualifying tile.
+// true for a tile that's open on both ends of one axis and walled on both
+// sides of the other — i.e. a straight-through corridor cell rather than a
+// genuine frontier. A 1-tile-wide tunnel is walled on both sides for its
+// entire length, so every interior tile "borders a wall"; without this
+// check findFrontierDropSite would happily wall one of them back up,
+// resealing the very passage a worker just dug through (and trapping any
+// other colonist using that tunnel behind/ahead of it).
+function isThroughCorridorTile(state: GameState, x: number, y: number): boolean {
+  const upWall = isWall(state, x, y - 1), downWall = isWall(state, x, y + 1);
+  const leftWall = isWall(state, x - 1, y), rightWall = isWall(state, x + 1, y);
+  return (!upWall && !downWall && leftWall && rightWall) || (!leftWall && !rightWall && upWall && downWall);
+}
+
+// picks a walkable, empty tile that borders at least one wall without being
+// a mere pass-through point in a corridor (a genuine "frontier" tile, at the
+// edge of open space) and is farther from the nest than (originX,originY) —
+// used when a worker needs to relocate a dug-up obstacle block "outward,"
+// away from the colony, instead of just resealing the hole it came from or
+// blocking the passage it's part of. Same bounded random-sample-then-filter
+// shape as randomOpenTileNear, but scans around the dig site rather than the
+// nest, and keeps the farthest-out candidate found within the try budget so
+// it drifts genuinely outward rather than stopping at the very next
+// qualifying tile.
 export function findFrontierDropSite(state: GameState, originX: number, originY: number, radius: number): Point | null {
   const originDist = nestDistance(state, originX, originY);
   let best: Point | null = null, bestDist = -Infinity;
@@ -185,8 +200,15 @@ export function findFrontierDropSite(state: GameState, originX: number, originY:
     const x = originX + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
     const y = originY + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
     if (!walkable(state, x, y) || foodAt(state, x, y)) continue;
+    // never wall up a tile that's part of a known scent trail — it's a route
+    // that needs to stay open, even where it's only a frontier tile *today*
+    // (the through-corridor check below is a snapshot at selection time; a
+    // tile mid-tunnel can still look like a dead end here if the far side
+    // hasn't been dug yet, but placing a wall on any trail tile would sooner
+    // or later reseal the passage once digging continues past it)
+    if (state.scentTrail.has(x + ',' + y)) continue;
     const bordersWall = isWall(state, x + 1, y) || isWall(state, x - 1, y) || isWall(state, x, y + 1) || isWall(state, x, y - 1);
-    if (!bordersWall) continue;
+    if (!bordersWall || isThroughCorridorTile(state, x, y)) continue;
     const d = nestDistance(state, x, y);
     if (d <= originDist) continue;
     if (d > bestDist) { best = { x, y }; bestDist = d; }

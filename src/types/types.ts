@@ -89,6 +89,7 @@ export interface Colonist extends Actor {
   job: WorkerJob;
   dropTarget: Point | null;
   forageTarget: FoodItem | null;
+  forageViaTrail: boolean;
   aggroTarget: Enemy | null;
   nextWanderAt: number;
   nextRepathAt: number;
