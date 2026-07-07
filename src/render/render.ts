@@ -2,9 +2,9 @@
 // GameState and draws it using the low-level primitives in rendering.ts —
 // no game logic lives here, only presentation.
 import type { GameState, Point } from '../types/types';
-import { CASTES, MAP_H, MAP_W, NEST_FOOD_RADIUS, NEST_SIZE, TILE, WORLD_TILE } from '../constants';
+import { CASTES, MAP_H, MAP_W, NEST_SIZE, TILE, WORLD_TILE } from '../constants';
 import { getClampedCamX, getClampedCamY } from './camera';
-import { isColonistAt, isNestAt, isWall, nestCells, nestDistance, obstacleAt } from '../state/state';
+import { effectiveNestFoodRadius, isColonistAt, isNestAt, isWall, nestCells, nestDistance, obstacleAt } from '../state/state';
 import { DIRT } from '../worldgen/worldgen';
 import { drawHpBar, drawNest, drawNestRadius, drawSquareEntity, drawTile } from './rendering';
 
@@ -19,7 +19,7 @@ export function renderWorldMap(state: GameState): void {
     }
   }
   worldCtx.fillStyle = '#9be89b';
-  for (const key of state.scentTrail) {
+  for (const key of state.scentTrail.keys()) {
     const [tx, ty] = key.split(',').map(Number);
     worldCtx.fillRect(tx * WORLD_TILE + 1, ty * WORLD_TILE + 1, WORLD_TILE - 2, WORLD_TILE - 2);
   }
@@ -55,13 +55,14 @@ export function render(state: GameState, now: number): void {
 
   // nest food-radius overlay (under everything else on the ground, like the scent trail)
   {
-    const minX = state.nest.x - NEST_FOOD_RADIUS, maxX = state.nest.x + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
-    const minY = state.nest.y - NEST_FOOD_RADIUS, maxY = state.nest.y + NEST_SIZE - 1 + NEST_FOOD_RADIUS;
-    drawNestRadius(ctx, TILE, canvas.width, canvas.height, camX, camY, minX, maxX, minY, maxY, (tx, ty) => nestDistance(state, tx, ty) <= NEST_FOOD_RADIUS);
+    const radius = effectiveNestFoodRadius(state);
+    const minX = state.nest.x - radius, maxX = state.nest.x + NEST_SIZE - 1 + radius;
+    const minY = state.nest.y - radius, maxY = state.nest.y + NEST_SIZE - 1 + radius;
+    drawNestRadius(ctx, TILE, canvas.width, canvas.height, camX, camY, minX, maxX, minY, maxY, (tx, ty) => nestDistance(state, tx, ty) <= radius);
   }
 
   // scent trail (under everything else on the ground)
-  for (const key of state.scentTrail) {
+  for (const key of state.scentTrail.keys()) {
     const [tx, ty] = key.split(',').map(Number);
     const sx = tx * TILE - camX, sy = ty * TILE - camY;
     if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height) continue;
@@ -106,8 +107,8 @@ export function render(state: GameState, now: number): void {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillRect(sx + 3, sy + 3, TILE - 6, TILE - 6);
     }
-    if (colonist.carryingFood) {
-      ctx.fillStyle = '#e8c44f';
+    if (colonist.carrying) {
+      ctx.fillStyle = colonist.carrying === 'obstacle' ? '#b0aaa0' : '#e8c44f';
       ctx.fillRect(sx + TILE / 2 - 1.5, sy - 4, 3, 3);
     }
     if (colonist.hp < colonist.maxHp) drawHpBar(ctx, TILE, sx, sy, colonist.hp / colonist.maxHp);

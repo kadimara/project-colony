@@ -153,7 +153,7 @@ export function attemptSoldierAttack(state: GameState, hud: HudRefs, now: number
   }
 }
 
-export function onPlayerArrived(state: GameState, hud: HudRefs): void {
+export function onPlayerArrived(state: GameState, hud: HudRefs, now: number): void {
   const { player } = state;
   // standing on a dug tile means the player is about to move on — put the
   // wall block back down now that they're leaving it
@@ -175,7 +175,7 @@ export function onPlayerArrived(state: GameState, hud: HudRefs): void {
   }
   if (player.caste === 'scout') {
     const wasActive = player.scentActive;
-    updateScent(state, player);
+    updateScent(state, player, now);
     if (player.scentActive && !wasActive) spawnFloatingText(state, player, 'found something!', '#9be89b');
     if (player.scentActive) updateHud(state, hud);
   }

@@ -4,7 +4,7 @@
 import type { CasteKey, GameRefs } from './types/types';
 import { DEFAULT_ZOOM_INDEX, MAP_H, MAP_W, TILE, WORLD_TILE } from './constants';
 import {
-  createGameState, foodAt, isNestAt, obstacleAt, regenerateWorld, walkable as stateWalkable,
+  createGameState, foodAt, isNestAt, obstacleAt, pruneScentTrail, regenerateWorld, walkable as stateWalkable,
 } from './state/state';
 import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './entities/entities';
 import { applyZoom, screenToTile } from './render/camera';
@@ -154,7 +154,7 @@ export function initColonyGame(): void {
     if (player.caste) {
       if (player.moving) {
         updateActorAnimation(player, now);
-        if (!player.moving) onPlayerArrived(state, hud);
+        if (!player.moving) onPlayerArrived(state, hud, now);
       } else {
         const dir = heldDir();
         if (dir) {
@@ -187,6 +187,7 @@ export function initColonyGame(): void {
     for (const enemy of state.enemies) updateEnemy(state, hud, enemy, now, walkableFn);
     for (const colonist of state.colonists) updateColonist(state, hud, colonist, now, walkableFn);
     updateNest(state, hud, now);
+    pruneScentTrail(state, now);
 
     render(state, now);
     if (state.mapOpen) renderWorldMap(state);

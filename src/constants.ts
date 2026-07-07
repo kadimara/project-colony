@@ -56,6 +56,16 @@ export const NEST_FOOD_COST = 1;      // 1 ant costs 1 food, consumed from the r
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
 export const MAX_COLONISTS = 15;
 
+// idle workers expand the nest by digging up nearby wall tiles and relocating
+// them (reusing the same obstacle-carry job as tunnel digging) — each
+// relocated wall counts as one unit of work; every NEST_EXPAND_WORK_PER_LEVEL
+// of them raises the nest's level, up to NEST_EXPAND_MAX_LEVEL, growing its
+// effective food radius by NEST_FOOD_RADIUS_PER_LEVEL per level
+export const NEST_EXPAND_SEARCH_RADIUS = 12;
+export const NEST_EXPAND_WORK_PER_LEVEL = 3;
+export const NEST_EXPAND_MAX_LEVEL = 5;
+export const NEST_FOOD_RADIUS_PER_LEVEL = 1;
+
 // ---- colonists: autonomous NPC ants belonging to the colony ----
 export const COLONIST_MAX_HP: Record<CasteKey, number> = { worker: 10, soldier: 16, scout: 8 };
 export const COLONIST_MOVE_DUR: Record<CasteKey, number> = { worker: 260, soldier: 280, scout: 200 };
@@ -67,6 +77,11 @@ export const COLONIST_WANDER_MIN_MS = 1000;
 export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_WANDER_RADIUS = 4;
 export const COLONIST_REPATH_MS = 500;
+
+// how far out to scan when a worker looks for a frontier tile (open ground
+// bordering a wall) to relocate a dug-up obstacle block to — same bounded-
+// random-sample style as the other *_RADIUS search constants
+export const WORKER_FRONTIER_SEARCH_RADIUS = 10;
 
 // ---- scouts: roam far from the nest, detour toward any food that comes
 // within COLONIST_FORAGE_RADIUS, then commit to a straight shot back to the
@@ -81,6 +96,10 @@ export const SCOUT_EXPLORE_MAX_DIST = 20;
 // route, or the destination is unreachable any other way
 export const SCOUT_DIG_COST = 10;
 export const SCOUT_DIG_MOVE_DUR = COLONIST_MOVE_DUR.scout * 3;
+
+// how long a scent trail tile stays marked after being laid (or re-walked —
+// walking over a tile again refreshes its timestamp) before it's pruned
+export const SCENT_TRAIL_LIFETIME_MS = 60000;
 
 export const CASTE_DESCRIPTIONS: Record<CasteKey, string> = {
   worker: 'Pick up and relocate obstacles and food',

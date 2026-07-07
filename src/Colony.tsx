@@ -35,6 +35,10 @@ function Colony() {
             <span className="stat-label">Colony</span>
             <span className="stat-value" id="stat-population">0</span>
           </div>
+          <div className="stat">
+            <span className="stat-label">Nest level</span>
+            <span className="stat-value" id="stat-nest-level">0</span>
+          </div>
           <div className="stat seed-control">
             <span className="stat-label">Seed</span>
             <input id="seed-input" className="seed-input" type="text" />

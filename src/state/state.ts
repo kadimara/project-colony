@@ -4,10 +4,10 @@
 // `spawnEnemies` as a callback parameter so the two files don't form an
 // import cycle (entities/entities.ts imports randomOpenTile/randomOpenTileNear
 // from here, one direction only).
-import type { GameRefs, GameState, Point } from '../types/types';
+import type { FoodItem, GameRefs, GameState, Point } from '../types/types';
 import {
-  INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS, PLAYER_MAX_HP,
-  SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
+  INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS,
+  NEST_FOOD_RADIUS_PER_LEVEL, PLAYER_MAX_HP, SCENT_TRAIL_LIFETIME_MS, SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
 import { buildGroundAtlas, patchGroundAtlasTile } from '../render/ground-atlas';
@@ -70,14 +70,21 @@ export function nestDistance(state: GameState, x: number, y: number): number {
   return best;
 }
 
+// the nest's food-catchment radius grows with its level, per idle workers
+// relocating wall tiles nearby (see findNestExpansionTarget) — NEST_FOOD_RADIUS
+// itself stays the level-0 base value
+export function effectiveNestFoodRadius(state: GameState): number {
+  return NEST_FOOD_RADIUS + state.nest.level * NEST_FOOD_RADIUS_PER_LEVEL;
+}
+
 export function countFoodNearNest(state: GameState): number {
   let count = 0;
-  for (const f of state.foodItems) if (nestDistance(state, f.x, f.y) <= NEST_FOOD_RADIUS) count++;
+  for (const f of state.foodItems) if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state)) count++;
   return count;
 }
 
 export function playerInNestRadius(state: GameState): boolean {
-  return !!state.player.caste && nestDistance(state, state.player.tileX, state.player.tileY) <= NEST_FOOD_RADIUS;
+  return !!state.player.caste && nestDistance(state, state.player.tileX, state.player.tileY) <= effectiveNestFoodRadius(state);
 }
 
 export function walkable(state: GameState, x: number, y: number): boolean {
@@ -98,20 +105,33 @@ export function scoutCost(state: GameState, x: number, y: number): number | null
 
 // call once per tick for any scout (player or colonist) at its current tile:
 // turns scent on the moment it finds food outside the nest's own radius,
-// marks every tile crossed while active, and switches off once back home
-export function updateScent(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigin: Point | null }): void {
-  if (!actor.scentActive && foodAt(state, actor.tileX, actor.tileY) && nestDistance(state, actor.tileX, actor.tileY) > NEST_FOOD_RADIUS) {
+// marks every tile crossed while active (stamping/refreshing its lay time so
+// it decays from the tail as it ages — see pruneScentTrail), and switches off
+// once back home
+export function updateScent(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigin: Point | null }, now: number): void {
+  if (!actor.scentActive && foodAt(state, actor.tileX, actor.tileY) && nestDistance(state, actor.tileX, actor.tileY) > effectiveNestFoodRadius(state)) {
     actor.scentActive = true;
     actor.scentOrigin = { x: actor.tileX, y: actor.tileY };
   }
   if (actor.scentActive) {
     const key = actor.tileX + ',' + actor.tileY;
-    state.scentTrail.add(key);
+    state.scentTrail.set(key, now);
     if (actor.scentOrigin) state.scentTrailSource.set(key, actor.scentOrigin);
   }
-  if (actor.scentActive && nestDistance(state, actor.tileX, actor.tileY) <= NEST_FOOD_RADIUS) {
+  if (actor.scentActive && nestDistance(state, actor.tileX, actor.tileY) <= effectiveNestFoodRadius(state)) {
     actor.scentActive = false;
     actor.scentOrigin = null;
+  }
+}
+
+// drop any trail tile that hasn't been (re-)walked within its lifetime —
+// called once per frame regardless of whether any scout is currently active
+export function pruneScentTrail(state: GameState, now: number): void {
+  for (const [key, laidAt] of state.scentTrail) {
+    if (now - laidAt > SCENT_TRAIL_LIFETIME_MS) {
+      state.scentTrail.delete(key);
+      state.scentTrailSource.delete(key);
+    }
   }
 }
 
@@ -130,6 +150,111 @@ export function randomOpenTileNear(state: GameState, cx: number, cy: number, rad
     const x = cx + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
     const y = cy + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
     if (walkable(state, x, y) && !foodAt(state, x, y)) return { x, y };
+  }
+  return null;
+}
+
+// nearest food within radius of (x,y), excluding food already close enough
+// to the nest to fuel spawning and food sitting exactly at (x,y) — the
+// latter matters for scouts, which never remove food from state.foodItems,
+// so once one is standing on a food tile it must look past that tile to
+// notice the next one in a cluster. Scouts also pass excludeScented=true so
+// they don't keep re-discovering (and re-round-tripping to) food that
+// already has a trail leading to it — that food's already reported; it's a
+// worker's job to actually go fetch it, however long that takes. avoidPos
+// lets a worker skip a specific food tile it just found unreachable, so it
+// tries the next-nearest instead of picking the exact same one right back
+// (nearestFoodTo is plain Euclidean distance, with no reachability check).
+export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false, avoidPos?: Point | null): FoodItem | null {
+  let best: FoodItem | null = null, bestDist = Infinity;
+  for (const f of state.foodItems) {
+    if (f.x === x && f.y === y) continue;
+    if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state)) continue;
+    if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
+    if (avoidPos && f.x === avoidPos.x && f.y === avoidPos.y) continue;
+    const d = Math.hypot(f.x - x, f.y - y);
+    if (d <= radius && d < bestDist) { best = f; bestDist = d; }
+  }
+  return best;
+}
+
+// extends a worker's food awareness beyond its forage radius: if a
+// scent-trail tile is within range, treat the food at that trail's origin
+// as spotted too (as long as it's still actually there)
+export function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
+  let best: FoodItem | null = null, bestDist = Infinity;
+  for (const key of state.scentTrail.keys()) {
+    const [tx, ty] = key.split(',').map(Number);
+    const d = Math.hypot(tx - x, ty - y);
+    if (d > radius || d >= bestDist) continue;
+    const origin = state.scentTrailSource.get(key);
+    if (!origin || !foodAt(state, origin.x, origin.y)) continue;
+    best = origin; bestDist = d;
+  }
+  return best;
+}
+
+// true for a tile that's open on both ends of one axis and walled on both
+// sides of the other — i.e. a straight-through corridor cell rather than a
+// genuine frontier. A 1-tile-wide tunnel is walled on both sides for its
+// entire length, so every interior tile "borders a wall"; without this
+// check findFrontierDropSite would happily wall one of them back up,
+// resealing the very passage a worker just dug through (and trapping any
+// other colonist using that tunnel behind/ahead of it).
+function isThroughCorridorTile(state: GameState, x: number, y: number): boolean {
+  const upWall = isWall(state, x, y - 1), downWall = isWall(state, x, y + 1);
+  const leftWall = isWall(state, x - 1, y), rightWall = isWall(state, x + 1, y);
+  return (!upWall && !downWall && leftWall && rightWall) || (!leftWall && !rightWall && upWall && downWall);
+}
+
+// picks a walkable, empty tile that borders at least one wall without being
+// a mere pass-through point in a corridor (a genuine "frontier" tile, at the
+// edge of open space) and is farther from the nest than (originX,originY) —
+// used when a worker needs to relocate a dug-up obstacle block "outward,"
+// away from the colony, instead of just resealing the hole it came from or
+// blocking the passage it's part of. Same bounded random-sample-then-filter
+// shape as randomOpenTileNear, but scans around the dig site rather than the
+// nest, and keeps the farthest-out candidate found within the try budget so
+// it drifts genuinely outward rather than stopping at the very next
+// qualifying tile.
+export function findFrontierDropSite(state: GameState, originX: number, originY: number, radius: number): Point | null {
+  const originDist = nestDistance(state, originX, originY);
+  let best: Point | null = null, bestDist = -Infinity;
+  for (let tries = 0; tries < 60; tries++) {
+    const x = originX + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const y = originY + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    if (!walkable(state, x, y) || foodAt(state, x, y)) continue;
+    // never wall up a tile that's part of a known scent trail — it's a route
+    // that needs to stay open, even where it's only a frontier tile *today*
+    // (the through-corridor check below is a snapshot at selection time; a
+    // tile mid-tunnel can still look like a dead end here if the far side
+    // hasn't been dug yet, but placing a wall on any trail tile would sooner
+    // or later reseal the passage once digging continues past it)
+    if (state.scentTrail.has(x + ',' + y)) continue;
+    const bordersWall = isWall(state, x + 1, y) || isWall(state, x - 1, y) || isWall(state, x, y + 1) || isWall(state, x, y - 1);
+    if (!bordersWall || isThroughCorridorTile(state, x, y)) continue;
+    const d = nestDistance(state, x, y);
+    if (d <= originDist) continue;
+    if (d > bestDist) { best = { x, y }; bestDist = d; }
+  }
+  return best;
+}
+
+// picks a wall tile within radius of the nest that a worker could actually
+// dig (at least one walkable neighbor to stand on) and that isn't part of a
+// live scent trail — used by idle workers doing nest-expansion labor. Same
+// bounded random-sample shape as the other search helpers, but any qualifying
+// candidate is fine (no "farther is better" preference like
+// findFrontierDropSite has, since there's no outward-drift goal here).
+export function findNestExpansionTarget(state: GameState, radius: number): Point | null {
+  const { nest } = state;
+  for (let tries = 0; tries < 60; tries++) {
+    const x = nest.x + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const y = nest.y + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    if (!isWall(state, x, y) || state.scentTrail.has(x + ',' + y)) continue;
+    const hasWalkableNeighbor = walkable(state, x + 1, y) || walkable(state, x - 1, y) || walkable(state, x, y + 1) || walkable(state, x, y - 1);
+    if (!hasWalkableNeighbor) continue;
+    return { x, y };
   }
   return null;
 }
@@ -154,6 +279,7 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   state.nest.x = SPAWN_X + 1; state.nest.y = SPAWN_Y;
   state.nest.pendingCaste = null;
   state.nest.incubating = false; state.nest.incubateStart = 0;
+  state.nest.level = 0; state.nest.workProgress = 0;
   state.colonists.length = 0;
 
   state.scentTrail.clear();
@@ -190,7 +316,7 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
     foodItems: [],
     enemies: [],
     colonists: [],
-    nest: { x: SPAWN_X + 1, y: SPAWN_Y, incubating: false, incubateStart: 0, pendingCaste: null },
+    nest: { x: SPAWN_X + 1, y: SPAWN_Y, incubating: false, incubateStart: 0, pendingCaste: null, level: 0, workProgress: 0 },
     player: {
       tileX: SPAWN_X, tileY: SPAWN_Y, px: SPAWN_X * TILE, py: SPAWN_Y * TILE,
       dir: 'down', moving: false, moveStart: 0, moveDur: 240,
@@ -199,7 +325,7 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
       attackTarget: null, lastAttack: 0,
       hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, invulnUntil: 0, digTile: null,
     },
-    scentTrail: new Set(),
+    scentTrail: new Map(),
     scentTrailSource: new Map(),
     floatingTexts: [],
     zoomIndex: 0,
