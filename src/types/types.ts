@@ -7,7 +7,10 @@ import type { Rng } from '../worldgen/worldgen';
 export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
-export type WorkerJob = 'returnFood' | 'returnObstacle' | 'followTrail' | 'forage' | 'expandNest' | 'wander';
+export type ScentType = 'food' | 'alarm';
+export type ScoutState = 'scouting' | 'returningToNest';
+export type WorkerState = 'atNest' | 'followingScent' | 'carryingFood' | 'carryingWall' | 'returningToNest';
+export type SoldierState = 'patrolling' | 'followingAlertScent' | 'attacking' | 'returningToNest';
 
 export interface Point {
   x: number;
@@ -57,6 +60,7 @@ export interface Player extends Actor {
   pendingAction: PendingAction | null;
   scentActive: boolean;
   scentOrigin: Point | null;
+  scentType: ScentType | null;
   attackTarget: Enemy | null;
   lastAttack: number;
   hp: number;
@@ -86,21 +90,24 @@ export interface Colonist extends Actor {
   hp: number;
   maxHp: number;
   carrying: CarryType | null;
-  job: WorkerJob;
+  workerState: WorkerState;
+  scoutState: ScoutState;
+  soldierState: SoldierState;
   dropTarget: Point | null;
-  digTarget: Point | null;
   forageTarget: FoodItem | null;
-  forageViaTrail: boolean;
-  forageBlacklist: Point | null;
+  carryOrigin: 'atNest' | 'followingScent' | null;
+  alertTarget: Point | null;
   aggroTarget: Enemy | null;
   nextWanderAt: number;
   nextRepathAt: number;
   lastAttack: number;
   aggroUntil: number;
   flashUntil: number;
+  attacked: boolean;
   exploreTarget: Point | null;
   scentActive: boolean;
   scentOrigin: Point | null;
+  scentType: ScentType | null;
   digTile: Point | null;
 }
 
@@ -178,6 +185,7 @@ export interface GameState {
   player: Player;
   scentTrail: Map<string, number>;
   scentTrailSource: Map<string, Point>;
+  scentTrailType: Map<string, ScentType>;
   floatingTexts: FloatingText[];
 
   zoomIndex: number;

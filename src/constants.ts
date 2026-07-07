@@ -56,14 +56,9 @@ export const NEST_FOOD_COST = 1;      // 1 ant costs 1 food, consumed from the r
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
 export const MAX_COLONISTS = 15;
 
-// idle workers expand the nest by digging up nearby wall tiles and relocating
-// them (reusing the same obstacle-carry job as tunnel digging) — each
-// relocated wall counts as one unit of work; every NEST_EXPAND_WORK_PER_LEVEL
-// of them raises the nest's level, up to NEST_EXPAND_MAX_LEVEL, growing its
-// effective food radius by NEST_FOOD_RADIUS_PER_LEVEL per level
-export const NEST_EXPAND_SEARCH_RADIUS = 12;
-export const NEST_EXPAND_WORK_PER_LEVEL = 3;
-export const NEST_EXPAND_MAX_LEVEL = 5;
+// nest.level currently never advances (nothing credits it since workers
+// stopped doing long-range expansion digging) — effectiveNestFoodRadius
+// keeps this per-level formula anyway since it's harmless at level 0
 export const NEST_FOOD_RADIUS_PER_LEVEL = 1;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
@@ -75,8 +70,11 @@ export const COLONIST_AGGRO_RADIUS = 5;
 export const COLONIST_FORAGE_RADIUS = 12;
 export const COLONIST_WANDER_MIN_MS = 1000;
 export const COLONIST_WANDER_MAX_MS = 2600;
-export const COLONIST_WANDER_RADIUS = 4;
 export const COLONIST_REPATH_MS = 500;
+
+// ---- soldiers: patrol near the nest until an alarm trail leads them to a fight ----
+export const SOLDIER_PATROL_RADIUS = 6;       // how far from the nest a patrolling soldier wanders
+export const SOLDIER_ALERT_SCENT_RADIUS = 12; // scan range for detecting an alarm-tagged trail tile
 
 // how far out to scan when a worker looks for a frontier tile (open ground
 // bordering a wall) to relocate a dug-up obstacle block to — same bounded-
