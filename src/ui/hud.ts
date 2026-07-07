@@ -4,8 +4,8 @@
 // callbacks from game.ts so this module never has to import player-actions
 // or ai directly.
 import type { CasteKey, GameState, HudRefs } from '../types/types';
-import { CASTES, CASTE_DESCRIPTIONS, MAX_COLONISTS, NEST_FOOD_COST, NEST_FOOD_RADIUS, WORLD_TILE, NEST_CASTE_DESCRIPTIONS } from '../constants';
-import { countFoodNearNest, playerInNestRadius } from '../state/state';
+import { CASTES, CASTE_DESCRIPTIONS, MAX_COLONISTS, NEST_FOOD_COST, WORLD_TILE, NEST_CASTE_DESCRIPTIONS } from '../constants';
+import { countFoodNearNest, effectiveNestFoodRadius, playerInNestRadius } from '../state/state';
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -20,6 +20,7 @@ export function createHudRefs(): HudRefs {
     statCarry: byId('stat-carry'),
     statTrail: byId('stat-trail'),
     statPopulation: byId('stat-population'),
+    statNestLevel: byId('stat-nest-level'),
     toastEl: byId('toast'),
 
     casteOverlay: byId('caste-overlay'),
@@ -52,6 +53,7 @@ export function updateHud(state: GameState, hud: HudRefs): void {
   hud.statCarry.textContent = state.player.carryingType || 'nothing';
   hud.statTrail.textContent = String(state.scentTrail.size);
   hud.statPopulation.textContent = state.colonists.length + '/' + MAX_COLONISTS;
+  hud.statNestLevel.textContent = String(state.nest.level);
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,7 +114,7 @@ function renderNestOverlay(state: GameState, hud: HudRefs, onSelect: (key: Caste
   const inRadius = playerInNestRadius(state);
   const { nest, colonists } = state;
   hud.nestStatusEl.textContent = 'Population ' + colonists.length + '/' + MAX_COLONISTS +
-    ' · food within ' + NEST_FOOD_RADIUS + ' tiles: ' + available +
+    ' · food within ' + effectiveNestFoodRadius(state) + ' tiles: ' + available +
     (nest.incubating ? ' · producing a ' + CASTES[nest.pendingCaste!].name.toLowerCase() + '…'
       : (inRadius ? '' : ' · stand inside the food circle to spawn'));
 

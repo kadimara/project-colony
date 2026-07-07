@@ -6,12 +6,12 @@ import {
   COLONIST_MOVE_DUR, COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
   ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
-  NEST_FOOD_RADIUS, NEST_INCUBATE_MS, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
+  NEST_INCUBATE_MS, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
   SCOUT_EXPLORE_MIN_DIST,
 } from '../constants';
 import {
-  foodAt, isWall, nearestFoodTo, nestDistance, playerInNestRadius, randomOpenTileNear, scoutCost, setWall,
-  spawnFloatingText, updateScent,
+  effectiveNestFoodRadius, foodAt, isWall, nearestFoodTo, nestDistance, playerInNestRadius, randomOpenTileNear,
+  scoutCost, setWall, spawnFloatingText, updateScent,
 } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
@@ -198,13 +198,13 @@ export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonis
       colonist.digTile = null;
     }
 
-    updateScent(state, colonist);
+    updateScent(state, colonist, now);
 
     if (colonist.scentActive) {
       // returning to the nest, laying scent the whole way — ignore food until home
       colonist.forageTarget = null;
       if (colonist.path.length === 0) {
-        const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, NEST_FOOD_RADIUS - 1);
+        const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
         const path = spot ? findWeightedPath(colonist.tileX, colonist.tileY, spot.x, spot.y, (x, y) => scoutCost(state, x, y)) : [];
         if (path.length) { colonist.exploreTarget = spot; colonist.path = path; }
       }
@@ -269,7 +269,7 @@ export function startNestSpawn(state: GameState, hud: HudRefs, casteKey: Colonis
   if (state.colonists.length >= MAX_COLONISTS) { showToast(hud, 'Colony is at full population'); return false; }
   const nearbyIdx: number[] = [];
   for (let i = 0; i < state.foodItems.length; i++) {
-    if (nestDistance(state, state.foodItems[i].x, state.foodItems[i].y) <= NEST_FOOD_RADIUS) nearbyIdx.push(i);
+    if (nestDistance(state, state.foodItems[i].x, state.foodItems[i].y) <= effectiveNestFoodRadius(state)) nearbyIdx.push(i);
   }
   if (nearbyIdx.length < NEST_FOOD_COST) { showToast(hud, 'Not enough food near the nest'); return false; }
   for (const idx of nearbyIdx.slice(0, NEST_FOOD_COST).sort((a, b) => b - a)) state.foodItems.splice(idx, 1);

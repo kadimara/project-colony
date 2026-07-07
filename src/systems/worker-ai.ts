@@ -4,10 +4,13 @@
 // "must-finish" — once a worker is carrying something, nothing else is even
 // considered until the corresponding run* handler clears colonist.carrying.
 import type { Colonist, GameState, HudRefs, WorkerJob } from '../types/types';
-import { COLONIST_FORAGE_RADIUS, NEST_FOOD_RADIUS, WORKER_FRONTIER_SEARCH_RADIUS } from '../constants';
 import {
-  findFrontierDropSite, foodAt, isWall, nearestFoodTo, nearestFoodViaTrail, nestDistance, randomOpenTileNear,
-  scoutCost, setWall, spawnFloatingText,
+  COLONIST_FORAGE_RADIUS, NEST_EXPAND_MAX_LEVEL, NEST_EXPAND_SEARCH_RADIUS, NEST_EXPAND_WORK_PER_LEVEL,
+  WORKER_FRONTIER_SEARCH_RADIUS,
+} from '../constants';
+import {
+  effectiveNestFoodRadius, findFrontierDropSite, findNestExpansionTarget, foodAt, isWall, nearestFoodTo,
+  nearestFoodViaTrail, nestDistance, randomOpenTileNear, scoutCost, setWall, spawnFloatingText,
 } from '../state/state';
 import { dirBetween, startStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPathToAdjacent, isAdjacent, type Walkable } from './pathfinding';
@@ -35,13 +38,21 @@ function selectWorkerJob(state: GameState, colonist: Colonist): WorkerJob {
   const spotted = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS);
   if (spotted) { colonist.forageTarget = spotted; colonist.forageViaTrail = false; return 'forage'; }
 
+  // nothing to forage — put idle hands to work expanding the nest, unless
+  // it's already maxed out or there's nothing diggable nearby right now
+  if (state.nest.level < NEST_EXPAND_MAX_LEVEL) {
+    if (colonist.digTarget && isWall(state, colonist.digTarget.x, colonist.digTarget.y)) return 'expandNest';
+    const target = findNestExpansionTarget(state, NEST_EXPAND_SEARCH_RADIUS);
+    if (target) { colonist.digTarget = target; return 'expandNest'; }
+  }
+
   colonist.forageTarget = null;
   return 'wander';
 }
 
 // carrying food back to drop it within range of the nest
 function runReturnFood(state: GameState, colonist: Colonist, walkable: Walkable): void {
-  const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= NEST_FOOD_RADIUS;
+  const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= effectiveNestFoodRadius(state);
   if (nearNest) {
     if (!foodAt(state, colonist.tileX, colonist.tileY)) state.foodItems.push({ x: colonist.tileX, y: colonist.tileY });
     colonist.carrying = null;
@@ -49,7 +60,7 @@ function runReturnFood(state: GameState, colonist: Colonist, walkable: Walkable)
     return;
   }
   if (colonist.path.length === 0) {
-    const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, NEST_FOOD_RADIUS - 1);
+    const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
     const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable) : [];
     if (p.length) colonist.path = p; else { colonist.carrying = null; }
   }
@@ -142,6 +153,38 @@ function runForage(state: GameState, colonist: Colonist, walkable: Walkable): vo
   }
 }
 
+// idle labor: dig up a wall tile near the nest (an instantaneous pickup, same
+// as runFollowTrail's dig) and credit the nest's expansion progress — the
+// very next tick, carrying === 'obstacle' hands off to the existing
+// runReturnObstacle to relocate the block, exactly like a tunnel dig would
+function runExpandNest(state: GameState, colonist: Colonist, walkable: Walkable): void {
+  const target = colonist.digTarget!;
+  if (isAdjacent(colonist.tileX, colonist.tileY, target.x, target.y)) {
+    if (!isWall(state, target.x, target.y)) { colonist.digTarget = null; return; } // another worker beat it here — re-search next tick
+    setWall(state, target.x, target.y, false);
+    colonist.carrying = 'obstacle';
+    colonist.digTarget = null;
+    colonist.path = [];
+    const { nest } = state;
+    nest.workProgress += 1;
+    if (nest.workProgress >= NEST_EXPAND_WORK_PER_LEVEL && nest.level < NEST_EXPAND_MAX_LEVEL) {
+      nest.level += 1;
+      nest.workProgress = 0;
+      spawnFloatingText(state, colonist, 'nest expanded!', '#9be89b');
+    } else {
+      spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
+    }
+    return;
+  }
+  if (colonist.path.length === 0) {
+    colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, target.x, target.y, walkable);
+    if (colonist.path.length === 0) { colonist.digTarget = null; return; } // unreachable — pick a new target next tick
+  }
+  const next = colonist.path.shift()!;
+  if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+  else colonist.path = [];
+}
+
 // returns true if the worker acted this tick (caller should return); false
 // only for 'wander', so the caller falls through to the shared wander block
 export function updateWorker(state: GameState, _hud: HudRefs, colonist: Colonist, _now: number, walkable: Walkable): boolean {
@@ -154,6 +197,7 @@ export function updateWorker(state: GameState, _hud: HudRefs, colonist: Colonist
     case 'returnObstacle': runReturnObstacle(state, colonist, walkable); return true;
     case 'followTrail': runFollowTrail(state, colonist); return true;
     case 'forage': runForage(state, colonist, walkable); return true;
+    case 'expandNest': runExpandNest(state, colonist, walkable); return true;
     case 'wander': return false;
   }
 }

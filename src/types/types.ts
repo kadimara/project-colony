@@ -7,7 +7,7 @@ import type { Rng } from '../worldgen/worldgen';
 export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
-export type WorkerJob = 'returnFood' | 'returnObstacle' | 'followTrail' | 'forage' | 'wander';
+export type WorkerJob = 'returnFood' | 'returnObstacle' | 'followTrail' | 'forage' | 'expandNest' | 'wander';
 
 export interface Point {
   x: number;
@@ -88,6 +88,7 @@ export interface Colonist extends Actor {
   carrying: CarryType | null;
   job: WorkerJob;
   dropTarget: Point | null;
+  digTarget: Point | null;
   forageTarget: FoodItem | null;
   forageViaTrail: boolean;
   aggroTarget: Enemy | null;
@@ -108,6 +109,8 @@ export interface Nest {
   incubating: boolean;
   incubateStart: number;
   pendingCaste: CasteKey | null;
+  level: number;
+  workProgress: number;
 }
 
 export interface FloatingText {
@@ -134,6 +137,7 @@ export interface HudRefs {
   statCarry: HTMLElement;
   statTrail: HTMLElement;
   statPopulation: HTMLElement;
+  statNestLevel: HTMLElement;
   toastEl: HTMLElement;
 
   casteOverlay: HTMLElement;
@@ -171,7 +175,7 @@ export interface GameState {
   colonists: Colonist[];
   nest: Nest;
   player: Player;
-  scentTrail: Set<string>;
+  scentTrail: Map<string, number>;
   scentTrailSource: Map<string, Point>;
   floatingTexts: FloatingText[];
 
