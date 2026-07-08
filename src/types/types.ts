@@ -97,8 +97,9 @@ export interface Colonist extends Actor {
   scoutState: ScoutState;
   dropTarget: Point | null;
   forageTarget: FoodItem | null;
-  carryOrigin: 'atNest' | 'followingScent' | null;
+  carryOrigin: 'atNest' | 'followingScent' | 'helpingSoldier' | null;
   alertTarget: Point | null;
+  tunnelTarget: Point | null;
   aggroTarget: Enemy | null;
   nextWanderAt: number;
   nextRepathAt: number;
@@ -180,6 +181,7 @@ export interface GameState {
   rng: Rng;
   map: number[][];
   wallSet: Set<string>;
+  unreachableWalls: Set<string>;
   foodItems: FoodItem[];
   enemies: Enemy[];
   colonists: Colonist[];

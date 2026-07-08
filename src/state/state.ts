@@ -4,16 +4,40 @@
 // `spawnEnemies` as a callback parameter so the two files don't form an
 // import cycle (entities/entities.ts imports randomOpenTile/randomOpenTileNear
 // from here, one direction only).
-import type { FoodItem, GameRefs, GameState, Point, ScentType } from '../types/types';
+import type {
+  CarryType,
+  Colonist,
+  FoodItem,
+  GameRefs,
+  GameState,
+  Point,
+  ScentType,
+} from '../types/types';
 import {
-  ALARM_SCENT_LIFETIME_MS, INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS,
-  NEST_FOOD_RADIUS_PER_LEVEL, PLAYER_MAX_HP, SCENT_TRAIL_LIFETIME_MS, SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
+  ALARM_SCENT_LIFETIME_MS,
+  INITIAL_FOOD_COUNT,
+  INITIAL_SEED,
+  MAP_H,
+  MAP_W,
+  NEST_FOOD_RADIUS,
+  NEST_FOOD_RADIUS_PER_LEVEL,
+  PLAYER_MAX_HP,
+  SCENT_TRAIL_LIFETIME_MS,
+  SCOUT_DIG_COST,
+  SPAWN_X,
+  SPAWN_Y,
+  TILE,
 } from '../constants';
 import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
 import { buildGroundAtlas, patchGroundAtlasTile } from '../render/ground-atlas';
 
-export function terrainWalkable(state: GameState, x: number, y: number): boolean {
-  if (x < 0 || y < 0 || y >= state.map.length || x >= state.map[0].length) return false;
+export function terrainWalkable(
+  state: GameState,
+  x: number,
+  y: number,
+): boolean {
+  if (x < 0 || y < 0 || y >= state.map.length || x >= state.map[0].length)
+    return false;
   return true;
 }
 
@@ -21,13 +45,30 @@ export function isWall(state: GameState, x: number, y: number): boolean {
   return state.wallSet.has(x + ',' + y);
 }
 
-export function setWall(state: GameState, x: number, y: number, solid: boolean): void {
+export function setWall(
+  state: GameState,
+  x: number,
+  y: number,
+  solid: boolean,
+): void {
   const key = x + ',' + y;
-  if (solid) state.wallSet.add(key); else state.wallSet.delete(key);
+  if (solid) {
+    state.wallSet.add(key);
+  } else {
+    state.wallSet.delete(key);
+    // removing any wall can reopen a route to others that were previously
+    // unreachable, so a full clear (rather than tracking exactly which
+    // entries it affects) is the simplest correct invalidation
+    state.unreachableWalls.clear();
+  }
   patchGroundAtlasTile(state.refs, state.map, x, y, solid);
 }
 
-export function obstacleAt(state: GameState, x: number, y: number): Point | null {
+export function obstacleAt(
+  state: GameState,
+  x: number,
+  y: number,
+): Point | null {
   return isWall(state, x, y) ? { x, y } : null;
 }
 
@@ -40,18 +81,24 @@ export function isEnemyAt(state: GameState, x: number, y: number): boolean {
 }
 
 export function isColonistAt(state: GameState, x: number, y: number): boolean {
-  return state.colonists.some((c) => c.hp > 0 && c.tileX === x && c.tileY === y);
+  return state.colonists.some(
+    (c) => c.hp > 0 && c.tileX === x && c.tileY === y,
+  );
 }
 
 export function isPlayerAt(state: GameState, x: number, y: number): boolean {
-  return !!state.player.caste && state.player.tileX === x && state.player.tileY === y;
+  return (
+    !!state.player.caste && state.player.tileX === x && state.player.tileY === y
+  );
 }
 
 export function nestCells(state: GameState): Point[] {
   const { nest } = state;
   return [
-    { x: nest.x, y: nest.y }, { x: nest.x + 1, y: nest.y },
-    { x: nest.x, y: nest.y + 1 }, { x: nest.x + 1, y: nest.y + 1 },
+    { x: nest.x, y: nest.y },
+    { x: nest.x + 1, y: nest.y },
+    { x: nest.x, y: nest.y + 1 },
+    { x: nest.x + 1, y: nest.y + 1 },
   ];
 }
 
@@ -79,17 +126,29 @@ export function effectiveNestFoodRadius(state: GameState): number {
 
 export function countFoodNearNest(state: GameState): number {
   let count = 0;
-  for (const f of state.foodItems) if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state)) count++;
+  for (const f of state.foodItems)
+    if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state))
+      count++;
   return count;
 }
 
 export function playerInNestRadius(state: GameState): boolean {
-  return !!state.player.caste && nestDistance(state, state.player.tileX, state.player.tileY) <= effectiveNestFoodRadius(state);
+  return (
+    !!state.player.caste &&
+    nestDistance(state, state.player.tileX, state.player.tileY) <=
+      effectiveNestFoodRadius(state)
+  );
 }
 
 export function walkable(state: GameState, x: number, y: number): boolean {
-  return terrainWalkable(state, x, y) && !isWall(state, x, y) && !isEnemyAt(state, x, y)
-    && !isNestAt(state, x, y) && !isColonistAt(state, x, y) && !isPlayerAt(state, x, y);
+  return (
+    terrainWalkable(state, x, y) &&
+    !isWall(state, x, y) &&
+    !isEnemyAt(state, x, y) &&
+    !isNestAt(state, x, y) &&
+    !isColonistAt(state, x, y) &&
+    !isPlayerAt(state, x, y)
+  );
 }
 
 // cost for a scout (player or colonist) to enter (x,y): open ground is
@@ -97,9 +156,19 @@ export function walkable(state: GameState, x: number, y: number): boolean {
 // else (bounds/nest/an entity) stays impassable — a weighted pathfinder
 // then naturally prefers all-open routes and only pays to dig when
 // there's no cheaper way, or the target is otherwise unreachable at all
-export function scoutCost(state: GameState, x: number, y: number): number | null {
+export function scoutCost(
+  state: GameState,
+  x: number,
+  y: number,
+): number | null {
   if (!terrainWalkable(state, x, y)) return null;
-  if (isEnemyAt(state, x, y) || isNestAt(state, x, y) || isColonistAt(state, x, y) || isPlayerAt(state, x, y)) return null;
+  if (
+    isEnemyAt(state, x, y) ||
+    isNestAt(state, x, y) ||
+    isColonistAt(state, x, y) ||
+    isPlayerAt(state, x, y)
+  )
+    return null;
   return isWall(state, x, y) ? SCOUT_DIG_COST : 1;
 }
 
@@ -114,14 +183,32 @@ export function scoutCost(state: GameState, x: number, y: number): number | null
 // laid, any further food tile the actor happens to cross (not sought out,
 // just stepped on) gets appended to scentOrigins too, so the resulting trail
 // can report more than one food location.
-export function updateScent(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigins: Point[]; scentType: ScentType | null }, now: number): void {
+export function updateScent(
+  state: GameState,
+  actor: {
+    tileX: number;
+    tileY: number;
+    scentActive: boolean;
+    scentOrigins: Point[];
+    scentType: ScentType | null;
+  },
+  now: number,
+): void {
   if (actor.scentActive && actor.scentType === 'food') {
     const food = foodAt(state, actor.tileX, actor.tileY);
-    if (food && nestDistance(state, food.x, food.y) > effectiveNestFoodRadius(state)
-        && !actor.scentOrigins.some((o) => o.x === food.x && o.y === food.y)) {
+    if (
+      food &&
+      nestDistance(state, food.x, food.y) > effectiveNestFoodRadius(state) &&
+      !actor.scentOrigins.some((o) => o.x === food.x && o.y === food.y)
+    ) {
       actor.scentOrigins.push({ x: food.x, y: food.y });
     }
-  } else if (!actor.scentActive && foodAt(state, actor.tileX, actor.tileY) && nestDistance(state, actor.tileX, actor.tileY) > effectiveNestFoodRadius(state)) {
+  } else if (
+    !actor.scentActive &&
+    foodAt(state, actor.tileX, actor.tileY) &&
+    nestDistance(state, actor.tileX, actor.tileY) >
+      effectiveNestFoodRadius(state)
+  ) {
     actor.scentActive = true;
     actor.scentOrigins = [{ x: actor.tileX, y: actor.tileY }];
     actor.scentType = 'food';
@@ -129,10 +216,15 @@ export function updateScent(state: GameState, actor: { tileX: number; tileY: num
   if (actor.scentActive) {
     const key = actor.tileX + ',' + actor.tileY;
     state.scentTrail.set(key, now);
-    if (actor.scentOrigins.length) state.scentTrailSource.set(key, actor.scentOrigins.slice());
+    if (actor.scentOrigins.length)
+      state.scentTrailSource.set(key, actor.scentOrigins.slice());
     if (actor.scentType) state.scentTrailType.set(key, actor.scentType);
   }
-  if (actor.scentActive && nestDistance(state, actor.tileX, actor.tileY) <= effectiveNestFoodRadius(state)) {
+  if (
+    actor.scentActive &&
+    nestDistance(state, actor.tileX, actor.tileY) <=
+      effectiveNestFoodRadius(state)
+  ) {
     actor.scentActive = false;
     actor.scentOrigins = [];
     actor.scentType = null;
@@ -145,7 +237,17 @@ export function updateScent(state: GameState, actor: { tileX: number; tileY: num
 // call each tick then keeps stamping it (and clears it on arrival) exactly
 // like the food case. Alarm trails always report a single origin (the
 // trigger point), unlike food trails.
-export function triggerAlarm(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigins: Point[]; scentType: ScentType | null }, now: number): void {
+export function triggerAlarm(
+  state: GameState,
+  actor: {
+    tileX: number;
+    tileY: number;
+    scentActive: boolean;
+    scentOrigins: Point[];
+    scentType: ScentType | null;
+  },
+  now: number,
+): void {
   actor.scentActive = true;
   actor.scentOrigins = [{ x: actor.tileX, y: actor.tileY }];
   actor.scentType = 'alarm';
@@ -162,7 +264,10 @@ export function triggerAlarm(state: GameState, actor: { tileX: number; tileY: nu
 // soldiers toward a long-gone threat.
 export function pruneScentTrail(state: GameState, now: number): void {
   for (const [key, laidAt] of state.scentTrail) {
-    const lifetime = state.scentTrailType.get(key) === 'alarm' ? ALARM_SCENT_LIFETIME_MS : SCENT_TRAIL_LIFETIME_MS;
+    const lifetime =
+      state.scentTrailType.get(key) === 'alarm'
+        ? ALARM_SCENT_LIFETIME_MS
+        : SCENT_TRAIL_LIFETIME_MS;
     if (now - laidAt > lifetime) {
       state.scentTrail.delete(key);
       state.scentTrailSource.delete(key);
@@ -175,13 +280,25 @@ export function randomOpenTile(state: GameState): Point | null {
   for (let tries = 0; tries < 300; tries++) {
     const x = 1 + Math.floor(state.rng() * (MAP_W - 2));
     const y = 1 + Math.floor(state.rng() * (MAP_H - 2));
-    if (!isWall(state, x, y) && !foodAt(state, x, y) && !isEnemyAt(state, x, y)
-      && !isNestAt(state, x, y) && !isColonistAt(state, x, y) && !isPlayerAt(state, x, y)) return { x, y };
+    if (
+      !isWall(state, x, y) &&
+      !foodAt(state, x, y) &&
+      !isEnemyAt(state, x, y) &&
+      !isNestAt(state, x, y) &&
+      !isColonistAt(state, x, y) &&
+      !isPlayerAt(state, x, y)
+    )
+      return { x, y };
   }
   return null;
 }
 
-export function randomOpenTileNear(state: GameState, cx: number, cy: number, radius: number): Point | null {
+export function randomOpenTileNear(
+  state: GameState,
+  cx: number,
+  cy: number,
+  radius: number,
+): Point | null {
   for (let tries = 0; tries < 40; tries++) {
     const x = cx + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
     const y = cy + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
@@ -201,15 +318,29 @@ export function randomOpenTileNear(state: GameState, cx: number, cy: number, rad
 // lets a worker skip a specific food tile it just found unreachable, so it
 // tries the next-nearest instead of picking the exact same one right back
 // (nearestFoodTo is plain Euclidean distance, with no reachability check).
-export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false, avoidPos?: Point | null): FoodItem | null {
-  let best: FoodItem | null = null, bestDist = Infinity;
+export function nearestFoodTo(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+  excludeScented = false,
+  avoidPos?: Point | null,
+  exclude?: Set<string>,
+): FoodItem | null {
+  let best: FoodItem | null = null,
+    bestDist = Infinity;
   for (const f of state.foodItems) {
     if (f.x === x && f.y === y) continue;
-    if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state)) continue;
+    if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state))
+      continue;
     if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
     if (avoidPos && f.x === avoidPos.x && f.y === avoidPos.y) continue;
+    if (exclude && exclude.has(f.x + ',' + f.y)) continue;
     const d = Math.hypot(f.x - x, f.y - y);
-    if (d <= radius && d < bestDist) { best = f; bestDist = d; }
+    if (d <= radius && d < bestDist) {
+      best = f;
+      bestDist = d;
+    }
   }
   return best;
 }
@@ -219,8 +350,14 @@ export function nearestFoodTo(state: GameState, x: number, y: number, radius: nu
 // origins as spotted too (as long as it's still actually there) — a trail
 // can report more than one food location (see updateScent), so this checks
 // every origin on the nearest qualifying tile, not just the first
-export function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
-  let best: FoodItem | null = null, bestDist = Infinity;
+export function nearestFoodViaTrail(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+): FoodItem | null {
+  let best: FoodItem | null = null,
+    bestDist = Infinity;
   for (const key of state.scentTrail.keys()) {
     if (state.scentTrailType.get(key) !== 'food') continue;
     const [tx, ty] = key.split(',').map(Number);
@@ -228,18 +365,105 @@ export function nearestFoodViaTrail(state: GameState, x: number, y: number, radi
     if (d > radius || d >= bestDist) continue;
     for (const origin of state.scentTrailSource.get(key) ?? []) {
       if (!foodAt(state, origin.x, origin.y)) continue;
-      best = origin; bestDist = d;
+      best = origin;
+      bestDist = d;
     }
   }
   return best;
+}
+
+// every other live colonist's currently-claimed forage target (worker or
+// scout — both use forageTarget), keyed "x,y" — lets a target-picking query
+// skip food someone else is already en route to instead of every idle
+// colonist converging on the single globally-nearest item
+export function claimedForageTargets(
+  state: GameState,
+  exceptColonist?: Colonist,
+): Set<string> {
+  const claimed = new Set<string>();
+  for (const c of state.colonists) {
+    if (c === exceptColonist || !c.forageTarget || c.hp <= 0) continue;
+    claimed.add(c.forageTarget.x + ',' + c.forageTarget.y);
+  }
+  return claimed;
+}
+
+// places a food item at (tx,ty), falling back to a neighboring open tile if
+// that exact spot is occupied — the same "drop it here, or nearby" shape as
+// combat.ts's dropFoodOnDeath, reused so a carried item never has nowhere to go
+export function placeFoodNear(
+  state: GameState,
+  tx: number,
+  ty: number,
+): boolean {
+  const freeAt = (x: number, y: number) =>
+    terrainWalkable(state, x, y) &&
+    !isWall(state, x, y) &&
+    !foodAt(state, x, y) &&
+    !isEnemyAt(state, x, y) &&
+    !isNestAt(state, x, y) &&
+    !isColonistAt(state, x, y) &&
+    !isPlayerAt(state, x, y);
+  let dropX = tx,
+    dropY = ty;
+  if (!freeAt(dropX, dropY)) {
+    const ring = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [-1, 1],
+      [1, -1],
+      [-1, -1],
+    ];
+    let placed = false;
+    for (const [dx, dy] of ring) {
+      if (freeAt(tx + dx, ty + dy)) {
+        dropX = tx + dx;
+        dropY = ty + dy;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) return false;
+  }
+  state.foodItems.push({ x: dropX, y: dropY });
+  return true;
+}
+
+// restores whatever a colonist is carrying to the world before clearing the
+// flag — an attack interrupt or death should never simply delete a held item,
+// mirroring player-actions.ts's applyCaste "drop it where you stand" pattern
+export function dropCarried(
+  state: GameState,
+  colonist: { tileX: number; tileY: number; carrying: CarryType | null },
+): void {
+  if (colonist.carrying === 'obstacle') {
+    if (
+      !isWall(state, colonist.tileX, colonist.tileY) &&
+      !foodAt(state, colonist.tileX, colonist.tileY)
+    ) {
+      setWall(state, colonist.tileX, colonist.tileY, true);
+    }
+  } else if (colonist.carrying === 'food') {
+    placeFoodNear(state, colonist.tileX, colonist.tileY);
+  }
+  colonist.carrying = null;
 }
 
 // mirrors nearestFoodViaTrail for the alarm trail: nearest alarm-tagged
 // trail tile within radius, returning its stored source point (a location,
 // not an item, so no liveness check is needed) — this is what a patrolling
 // soldier scans for. Alarm trails always have exactly one origin.
-export function nearestAlarmSource(state: GameState, x: number, y: number, radius: number): Point | null {
-  let best: Point | null = null, bestDist = Infinity;
+export function nearestAlarmSource(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+): Point | null {
+  let best: Point | null = null,
+    bestDist = Infinity;
   for (const key of state.scentTrail.keys()) {
     if (state.scentTrailType.get(key) !== 'alarm') continue;
     const [tx, ty] = key.split(',').map(Number);
@@ -247,7 +471,8 @@ export function nearestAlarmSource(state: GameState, x: number, y: number, radiu
     if (d > radius || d >= bestDist) continue;
     const origin = state.scentTrailSource.get(key)?.[0];
     if (!origin) continue;
-    best = origin; bestDist = d;
+    best = origin;
+    bestDist = d;
   }
   return best;
 }
@@ -259,10 +484,19 @@ export function nearestAlarmSource(state: GameState, x: number, y: number, radiu
 // check findFrontierDropSite would happily wall one of them back up,
 // resealing the very passage a worker just dug through (and trapping any
 // other colonist using that tunnel behind/ahead of it).
-function isThroughCorridorTile(state: GameState, x: number, y: number): boolean {
-  const upWall = isWall(state, x, y - 1), downWall = isWall(state, x, y + 1);
-  const leftWall = isWall(state, x - 1, y), rightWall = isWall(state, x + 1, y);
-  return (!upWall && !downWall && leftWall && rightWall) || (!leftWall && !rightWall && upWall && downWall);
+function isThroughCorridorTile(
+  state: GameState,
+  x: number,
+  y: number,
+): boolean {
+  const upWall = isWall(state, x, y - 1),
+    downWall = isWall(state, x, y + 1);
+  const leftWall = isWall(state, x - 1, y),
+    rightWall = isWall(state, x + 1, y);
+  return (
+    (!upWall && !downWall && leftWall && rightWall) ||
+    (!leftWall && !rightWall && upWall && downWall)
+  );
 }
 
 // picks a walkable, empty tile that borders at least one wall without being
@@ -275,9 +509,15 @@ function isThroughCorridorTile(state: GameState, x: number, y: number): boolean 
 // nest, and keeps the farthest-out candidate found within the try budget so
 // it drifts genuinely outward rather than stopping at the very next
 // qualifying tile.
-export function findFrontierDropSite(state: GameState, originX: number, originY: number, radius: number): Point | null {
+export function findFrontierDropSite(
+  state: GameState,
+  originX: number,
+  originY: number,
+  radius: number,
+): Point | null {
   const originDist = nestDistance(state, originX, originY);
-  let best: Point | null = null, bestDist = -Infinity;
+  let best: Point | null = null,
+    bestDist = -Infinity;
   for (let tries = 0; tries < 60; tries++) {
     const x = originX + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
     const y = originY + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
@@ -289,36 +529,90 @@ export function findFrontierDropSite(state: GameState, originX: number, originY:
     // hasn't been dug yet, but placing a wall on any trail tile would sooner
     // or later reseal the passage once digging continues past it)
     if (state.scentTrail.has(x + ',' + y)) continue;
-    const bordersWall = isWall(state, x + 1, y) || isWall(state, x - 1, y) || isWall(state, x, y + 1) || isWall(state, x, y - 1);
+    const bordersWall =
+      isWall(state, x + 1, y) ||
+      isWall(state, x - 1, y) ||
+      isWall(state, x, y + 1) ||
+      isWall(state, x, y - 1);
     if (!bordersWall || isThroughCorridorTile(state, x, y)) continue;
     const d = nestDistance(state, x, y);
     if (d <= originDist) continue;
-    if (d > bestDist) { best = { x, y }; bestDist = d; }
+    if (d > bestDist) {
+      best = { x, y };
+      bestDist = d;
+    }
   }
   return best;
 }
 
-export function spawnFloatingText(state: GameState, entity: { px: number; py: number }, text: string, color: string): void {
-  state.floatingTexts.push({ worldX: entity.px + TILE / 2, worldY: entity.py, text, color, born: performance.now() });
+// the single wall tile closest to the nest within radius — an idle worker at
+// the nest should clear this one first rather than whatever happens to be
+// standing next to it, so the nest's surroundings open up from the inside out.
+// Skips anything already flagged unreachable (see setWall) so a wall with no
+// walkable-only approach doesn't get re-picked and stalled on every tick.
+export function nearestWallToNest(
+  state: GameState,
+  radius: number,
+): Point | null {
+  let best: Point | null = null,
+    bestDist = Infinity;
+  for (let y = state.nest.y - radius; y <= state.nest.y + radius; y++) {
+    for (let x = state.nest.x - radius; x <= state.nest.x + radius; x++) {
+      if (!isWall(state, x, y)) continue;
+      if (state.unreachableWalls.has(x + ',' + y)) continue;
+      const d = nestDistance(state, x, y);
+      if (d < bestDist) {
+        best = { x, y };
+        bestDist = d;
+      }
+    }
+  }
+  return best;
+}
+
+export function spawnFloatingText(
+  state: GameState,
+  entity: { px: number; py: number },
+  text: string,
+  color: string,
+): void {
+  state.floatingTexts.push({
+    worldX: entity.px + TILE / 2,
+    worldY: entity.py,
+    text,
+    color,
+    born: performance.now(),
+  });
 }
 
 // rebuilds the whole world in place from a new seed — no reload needed,
 // since navigating/rewriting the URL isn't available in this environment.
 // Purely mutates state; callers are responsible for refreshing any HUD/DOM.
-export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies: (state: GameState) => void): void {
+export function regenerateWorld(
+  state: GameState,
+  newSeed: number,
+  spawnEnemies: (state: GameState) => void,
+): void {
   state.seed = newSeed;
   state.rng = mulberry32(newSeed);
 
   state.wallSet = buildWalls(newSeed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
+  state.unreachableWalls.clear();
   buildGroundAtlas(state.refs, state.map, state.wallSet);
   state.foodItems.length = 0;
-  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
+  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) {
+    const s = randomOpenTile(state);
+    if (s) state.foodItems.push(s);
+  }
   spawnEnemies(state);
 
-  state.nest.x = SPAWN_X + 1; state.nest.y = SPAWN_Y;
+  state.nest.x = SPAWN_X + 1;
+  state.nest.y = SPAWN_Y;
   state.nest.pendingCaste = null;
-  state.nest.incubating = false; state.nest.incubateStart = 0;
-  state.nest.level = 0; state.nest.workProgress = 0;
+  state.nest.incubating = false;
+  state.nest.incubateStart = 0;
+  state.nest.level = 0;
+  state.nest.workProgress = 0;
   state.colonists.length = 0;
 
   state.scentTrail.clear();
@@ -335,14 +629,19 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   player.scentOrigins = [];
   player.scentType = null;
   player.moving = false;
-  player.tileX = SPAWN_X; player.tileY = SPAWN_Y;
-  player.px = SPAWN_X * TILE; player.py = SPAWN_Y * TILE;
+  player.tileX = SPAWN_X;
+  player.tileY = SPAWN_Y;
+  player.px = SPAWN_X * TILE;
+  player.py = SPAWN_Y * TILE;
   player.hp = player.maxHp;
   player.invulnUntil = 0;
   player.digTile = null;
 }
 
-export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState) => void): GameState {
+export function createGameState(
+  refs: GameRefs,
+  spawnEnemies: (state: GameState) => void,
+): GameState {
   const seed = INITIAL_SEED;
   const rng = mulberry32(seed);
   const map = buildMap(MAP_W, MAP_H);
@@ -354,17 +653,45 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
     rng,
     map,
     wallSet,
+    unreachableWalls: new Set(),
     foodItems: [],
     enemies: [],
     colonists: [],
-    nest: { x: SPAWN_X + 1, y: SPAWN_Y, incubating: false, incubateStart: 0, pendingCaste: null, level: 0, workProgress: 0 },
+    nest: {
+      x: SPAWN_X + 1,
+      y: SPAWN_Y,
+      incubating: false,
+      incubateStart: 0,
+      pendingCaste: null,
+      level: 0,
+      workProgress: 0,
+    },
     player: {
-      tileX: SPAWN_X, tileY: SPAWN_Y, px: SPAWN_X * TILE, py: SPAWN_Y * TILE,
-      dir: 'down', moving: false, moveStart: 0, moveDur: 240,
-      fromX: 0, fromY: 0, toX: 0, toY: 0, path: [],
-      caste: null, carryingType: null, pendingAction: null, scentActive: false, scentOrigins: [], scentType: null,
-      attackTarget: null, lastAttack: 0,
-      hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, invulnUntil: 0, digTile: null,
+      tileX: SPAWN_X,
+      tileY: SPAWN_Y,
+      px: SPAWN_X * TILE,
+      py: SPAWN_Y * TILE,
+      dir: 'down',
+      moving: false,
+      moveStart: 0,
+      moveDur: 240,
+      fromX: 0,
+      fromY: 0,
+      toX: 0,
+      toY: 0,
+      path: [],
+      caste: null,
+      carryingType: null,
+      pendingAction: null,
+      scentActive: false,
+      scentOrigins: [],
+      scentType: null,
+      attackTarget: null,
+      lastAttack: 0,
+      hp: PLAYER_MAX_HP,
+      maxHp: PLAYER_MAX_HP,
+      invulnUntil: 0,
+      digTile: null,
     },
     scentTrail: new Map(),
     scentTrailSource: new Map(),
@@ -378,7 +705,10 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
   };
 
   buildGroundAtlas(refs, map, wallSet);
-  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
+  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) {
+    const s = randomOpenTile(state);
+    if (s) state.foodItems.push(s);
+  }
   spawnEnemies(state);
 
   return state;
