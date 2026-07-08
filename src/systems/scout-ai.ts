@@ -1,9 +1,11 @@
-// Scout AI: a 2-state finite state machine. Scouting roams (pulled toward
-// any food that comes within forage radius, otherwise picking a random
-// far-off point and weighted-pathing to it, tunneling through walls at a
-// cost along the way) until it finds food or is attacked, either of which
-// starts a scent trail and flips it to ReturningToNest — a straight,
-// scent-laying shot back to the nest. Arrival flips it back to Scouting.
+// Scout AI: a behavior tree over two top-level branches — Scouting (pulled
+// toward any food that comes within forage radius, otherwise picking a
+// random far-off point and weighted-pathing to it, tunneling through walls
+// at a cost along the way) and ReturningToNest (a straight, scent-laying
+// shot back to the nest). Finding food or getting attacked starts a scent
+// trail and switches the branch to ReturningToNest; arrival switches it
+// back. scentActive remains the single source of truth for which branch is
+// live, same as before — the tree just decides what to *do* within a branch.
 import type { Colonist, GameState, HudRefs, Point } from '../types/types';
 import { COLONIST_FORAGE_RADIUS, COLONIST_MOVE_DUR, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST, SCOUT_EXPLORE_MIN_DIST } from '../constants';
 import {
@@ -12,6 +14,14 @@ import {
 } from '../state/state';
 import { dirBetween, startStep } from '../entities/entities';
 import { findWeightedPath, type Walkable } from './pathfinding';
+import { action, condition, selector, sequence, type BTNode } from './behavior-tree';
+
+interface ScoutCtx {
+  state: GameState;
+  colonist: Colonist;
+  walkable: Walkable;
+  now: number;
+}
 
 // picks a random far-off point to roam toward, in a random direction and
 // distance band, and returns a path to it (or null if nothing panned out) —
@@ -30,33 +40,72 @@ function pickExploreTarget(state: GameState, colonist: Colonist, walkable: Walka
   return null;
 }
 
-// roam: pulled toward nearby food, else random explore
-function runScouting(state: GameState, colonist: Colonist, walkable: Walkable): void {
+// drop a forage target that's gone stale (its food vanished, or its path
+// already ran out without ever reaching it)
+const clearStaleForageTarget: BTNode<ScoutCtx> = action(({ state, colonist }) => {
   if (colonist.forageTarget && (!foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y) || colonist.path.length === 0)) {
     colonist.forageTarget = null;
   }
-  if (!colonist.forageTarget) {
-    const pull = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, true);
-    if (pull) {
-      const path = findWeightedPath(colonist.tileX, colonist.tileY, pull.x, pull.y, (x, y) => scoutCost(state, x, y));
-      if (path.length) { colonist.forageTarget = pull; colonist.exploreTarget = pull; colonist.path = path; }
-    }
-  }
-  if (!colonist.forageTarget && colonist.path.length === 0) {
-    const found = pickExploreTarget(state, colonist, walkable);
-    if (found) { colonist.exploreTarget = found.target; colonist.path = found.path; }
-  }
-}
+});
 
-// returning to the nest, laying scent the whole way — ignore food until home
-function runReturningToNest(state: GameState, colonist: Colonist): void {
-  colonist.forageTarget = null;
-  if (colonist.path.length === 0) {
-    const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
-    const path = spot ? findWeightedPath(colonist.tileX, colonist.tileY, spot.x, spot.y, (x, y) => scoutCost(state, x, y)) : [];
-    if (path.length) { colonist.exploreTarget = spot; colonist.path = path; }
-  }
-}
+// try to path onto nearby food and adopt it as the forage target
+const seekNearbyFood: BTNode<ScoutCtx> = action(({ state, colonist }) => {
+  const pull = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, true);
+  if (!pull) return false;
+  const path = findWeightedPath(colonist.tileX, colonist.tileY, pull.x, pull.y, (x, y) => scoutCost(state, x, y));
+  if (!path.length) return false;
+  colonist.forageTarget = pull;
+  colonist.exploreTarget = pull;
+  colonist.path = path;
+  return true;
+});
+
+// pick a fresh random-roam target and path to it
+const exploreRandomly: BTNode<ScoutCtx> = action(({ state, colonist, walkable }) => {
+  const found = pickExploreTarget(state, colonist, walkable);
+  if (!found) return false;
+  colonist.exploreTarget = found.target;
+  colonist.path = found.path;
+  return true;
+});
+
+// Scouting: keep whatever forage target is already in hand; otherwise try
+// to spot nearby food; otherwise keep whatever path is already underway;
+// otherwise pick a new place to roam toward.
+const scoutingBehavior: BTNode<ScoutCtx> = sequence(
+  clearStaleForageTarget,
+  selector(
+    condition(({ colonist }) => !!colonist.forageTarget),
+    seekNearbyFood,
+    condition(({ colonist }) => colonist.path.length > 0),
+    exploreRandomly,
+  ),
+);
+
+// find a spot near the nest and path to it, ignoring food along the way
+const headToNest: BTNode<ScoutCtx> = action(({ state, colonist }) => {
+  const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
+  const path = spot ? findWeightedPath(colonist.tileX, colonist.tileY, spot.x, spot.y, (x, y) => scoutCost(state, x, y)) : [];
+  if (!path.length) return false;
+  colonist.exploreTarget = spot;
+  colonist.path = path;
+  return true;
+});
+
+// ReturningToNest: never forage; keep whatever return path is underway,
+// otherwise plot a fresh one.
+const returningBehavior: BTNode<ScoutCtx> = sequence(
+  action(({ colonist }) => { colonist.forageTarget = null; }),
+  selector(
+    condition(({ colonist }) => colonist.path.length > 0),
+    headToNest,
+  ),
+);
+
+const scoutTree: BTNode<ScoutCtx> = selector(
+  sequence(condition(({ colonist }) => colonist.scoutState === 'returningToNest'), returningBehavior),
+  scoutingBehavior,
+);
 
 function movePathStep(state: GameState, colonist: Colonist, walkable: Walkable): void {
   if (colonist.path.length === 0) return;
@@ -94,15 +143,14 @@ export function updateScout(state: GameState, _hud: HudRefs, colonist: Colonist,
 
   updateScent(state, colonist, now);
 
-  // scentActive is the single source of truth for which side of the FSM
-  // we're on — both the food-discovery trigger (inside updateScent) and the
-  // attack interrupt (above) turn it on; arrival turns it off (also inside
+  // scentActive is the single source of truth for which branch we're on —
+  // both the food-discovery trigger (inside updateScent) and the attack
+  // interrupt (above) turn it on; arrival turns it off (also inside
   // updateScent), so these two lines are the entire transition logic
   if (colonist.scoutState === 'scouting' && colonist.scentActive) colonist.scoutState = 'returningToNest';
   if (colonist.scoutState === 'returningToNest' && !colonist.scentActive) colonist.scoutState = 'scouting';
 
-  if (colonist.scoutState === 'returningToNest') runReturningToNest(state, colonist);
-  else runScouting(state, colonist, walkable);
+  scoutTree({ state, colonist, walkable, now });
 
   movePathStep(state, colonist, walkable);
 }
