@@ -96,9 +96,19 @@ export const SCOUT_EXPLORE_MAX_DIST = 20;
 export const SCOUT_DIG_COST = 10;
 export const SCOUT_DIG_MOVE_DUR = COLONIST_MOVE_DUR.scout * 3;
 
-// how long a scent trail tile stays marked after being laid (or re-walked —
-// walking over a tile again refreshes its timestamp) before it's pruned
+// how long a food-scent trail tile stays marked after being laid (or
+// re-walked — walking over a tile again refreshes its timestamp) before
+// it's pruned
 export const SCENT_TRAIL_LIFETIME_MS = 60000;
+
+// alarm trails fade much faster than food trails — a stale danger signal is
+// worse than a stale food lead, since it keeps pulling soldiers off patrol
+// toward a threat that's long since moved on or been dealt with
+export const ALARM_SCENT_LIFETIME_MS = 20000;
+
+// how far a scout can spot an enemy at, with line of sight required (no
+// seeing through walls) — see handleEnemySighted in scout-ai.ts
+export const SCOUT_VISION_RADIUS = 6;
 
 export const CASTE_DESCRIPTIONS: Record<CasteKey, string> = {
   worker: 'Pick up and relocate obstacles and food',

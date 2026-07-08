@@ -6,7 +6,7 @@
 // from here, one direction only).
 import type { FoodItem, GameRefs, GameState, Point, ScentType } from '../types/types';
 import {
-  INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS,
+  ALARM_SCENT_LIFETIME_MS, INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS,
   NEST_FOOD_RADIUS_PER_LEVEL, PLAYER_MAX_HP, SCENT_TRAIL_LIFETIME_MS, SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
@@ -110,45 +110,60 @@ export function scoutCost(state: GameState, x: number, y: number): number | null
 // once back home. Also used to keep laying an alarm trail once triggerAlarm
 // has turned scentActive on for that reason instead — this function doesn't
 // care which flavor is active, it just keeps stamping whatever scentType is
-// already set until arrival clears it.
-export function updateScent(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigin: Point | null; scentType: ScentType | null }, now: number): void {
-  if (!actor.scentActive && foodAt(state, actor.tileX, actor.tileY) && nestDistance(state, actor.tileX, actor.tileY) > effectiveNestFoodRadius(state)) {
+// already set until arrival clears it. While an active food trail is being
+// laid, any further food tile the actor happens to cross (not sought out,
+// just stepped on) gets appended to scentOrigins too, so the resulting trail
+// can report more than one food location.
+export function updateScent(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigins: Point[]; scentType: ScentType | null }, now: number): void {
+  if (actor.scentActive && actor.scentType === 'food') {
+    const food = foodAt(state, actor.tileX, actor.tileY);
+    if (food && nestDistance(state, food.x, food.y) > effectiveNestFoodRadius(state)
+        && !actor.scentOrigins.some((o) => o.x === food.x && o.y === food.y)) {
+      actor.scentOrigins.push({ x: food.x, y: food.y });
+    }
+  } else if (!actor.scentActive && foodAt(state, actor.tileX, actor.tileY) && nestDistance(state, actor.tileX, actor.tileY) > effectiveNestFoodRadius(state)) {
     actor.scentActive = true;
-    actor.scentOrigin = { x: actor.tileX, y: actor.tileY };
+    actor.scentOrigins = [{ x: actor.tileX, y: actor.tileY }];
     actor.scentType = 'food';
   }
   if (actor.scentActive) {
     const key = actor.tileX + ',' + actor.tileY;
     state.scentTrail.set(key, now);
-    if (actor.scentOrigin) state.scentTrailSource.set(key, actor.scentOrigin);
+    if (actor.scentOrigins.length) state.scentTrailSource.set(key, actor.scentOrigins.slice());
     if (actor.scentType) state.scentTrailType.set(key, actor.scentType);
   }
   if (actor.scentActive && nestDistance(state, actor.tileX, actor.tileY) <= effectiveNestFoodRadius(state)) {
     actor.scentActive = false;
-    actor.scentOrigin = null;
+    actor.scentOrigins = [];
     actor.scentType = null;
   }
 }
 
-// called when a scout/worker is attacked: immediately starts an alarm trail
-// at the actor's current tile, the same way updateScent's food branch starts
-// a food trail — a subsequent updateScent call each tick then keeps stamping
-// it (and clears it on arrival) exactly like the food case
-export function triggerAlarm(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigin: Point | null; scentType: ScentType | null }, now: number): void {
+// called when a scout/worker is attacked or sights an enemy: immediately
+// starts an alarm trail at the actor's current tile, the same way
+// updateScent's food branch starts a food trail — a subsequent updateScent
+// call each tick then keeps stamping it (and clears it on arrival) exactly
+// like the food case. Alarm trails always report a single origin (the
+// trigger point), unlike food trails.
+export function triggerAlarm(state: GameState, actor: { tileX: number; tileY: number; scentActive: boolean; scentOrigins: Point[]; scentType: ScentType | null }, now: number): void {
   actor.scentActive = true;
-  actor.scentOrigin = { x: actor.tileX, y: actor.tileY };
+  actor.scentOrigins = [{ x: actor.tileX, y: actor.tileY }];
   actor.scentType = 'alarm';
   const key = actor.tileX + ',' + actor.tileY;
   state.scentTrail.set(key, now);
-  state.scentTrailSource.set(key, actor.scentOrigin);
+  state.scentTrailSource.set(key, actor.scentOrigins.slice());
   state.scentTrailType.set(key, 'alarm');
 }
 
 // drop any trail tile that hasn't been (re-)walked within its lifetime —
-// called once per frame regardless of whether any scout is currently active
+// called once per frame regardless of whether any scout is currently active.
+// alarm tiles use a much shorter lifetime than food tiles (see
+// ALARM_SCENT_LIFETIME_MS) so a stale danger signal doesn't keep pulling
+// soldiers toward a long-gone threat.
 export function pruneScentTrail(state: GameState, now: number): void {
   for (const [key, laidAt] of state.scentTrail) {
-    if (now - laidAt > SCENT_TRAIL_LIFETIME_MS) {
+    const lifetime = state.scentTrailType.get(key) === 'alarm' ? ALARM_SCENT_LIFETIME_MS : SCENT_TRAIL_LIFETIME_MS;
+    if (now - laidAt > lifetime) {
       state.scentTrail.delete(key);
       state.scentTrailSource.delete(key);
       state.scentTrailType.delete(key);
@@ -200,8 +215,10 @@ export function nearestFoodTo(state: GameState, x: number, y: number, radius: nu
 }
 
 // extends a worker's food awareness beyond its forage radius: if a
-// scent-trail tile is within range, treat the food at that trail's origin
-// as spotted too (as long as it's still actually there)
+// scent-trail tile is within range, treat the food at any of that trail's
+// origins as spotted too (as long as it's still actually there) — a trail
+// can report more than one food location (see updateScent), so this checks
+// every origin on the nearest qualifying tile, not just the first
 export function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
   let best: FoodItem | null = null, bestDist = Infinity;
   for (const key of state.scentTrail.keys()) {
@@ -209,9 +226,10 @@ export function nearestFoodViaTrail(state: GameState, x: number, y: number, radi
     const [tx, ty] = key.split(',').map(Number);
     const d = Math.hypot(tx - x, ty - y);
     if (d > radius || d >= bestDist) continue;
-    const origin = state.scentTrailSource.get(key);
-    if (!origin || !foodAt(state, origin.x, origin.y)) continue;
-    best = origin; bestDist = d;
+    for (const origin of state.scentTrailSource.get(key) ?? []) {
+      if (!foodAt(state, origin.x, origin.y)) continue;
+      best = origin; bestDist = d;
+    }
   }
   return best;
 }
@@ -219,7 +237,7 @@ export function nearestFoodViaTrail(state: GameState, x: number, y: number, radi
 // mirrors nearestFoodViaTrail for the alarm trail: nearest alarm-tagged
 // trail tile within radius, returning its stored source point (a location,
 // not an item, so no liveness check is needed) — this is what a patrolling
-// soldier scans for
+// soldier scans for. Alarm trails always have exactly one origin.
 export function nearestAlarmSource(state: GameState, x: number, y: number, radius: number): Point | null {
   let best: Point | null = null, bestDist = Infinity;
   for (const key of state.scentTrail.keys()) {
@@ -227,7 +245,7 @@ export function nearestAlarmSource(state: GameState, x: number, y: number, radiu
     const [tx, ty] = key.split(',').map(Number);
     const d = Math.hypot(tx - x, ty - y);
     if (d > radius || d >= bestDist) continue;
-    const origin = state.scentTrailSource.get(key);
+    const origin = state.scentTrailSource.get(key)?.[0];
     if (!origin) continue;
     best = origin; bestDist = d;
   }
@@ -314,7 +332,7 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   player.attackTarget = null;
   player.path = [];
   player.scentActive = false;
-  player.scentOrigin = null;
+  player.scentOrigins = [];
   player.scentType = null;
   player.moving = false;
   player.tileX = SPAWN_X; player.tileY = SPAWN_Y;
@@ -344,7 +362,7 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
       tileX: SPAWN_X, tileY: SPAWN_Y, px: SPAWN_X * TILE, py: SPAWN_Y * TILE,
       dir: 'down', moving: false, moveStart: 0, moveDur: 240,
       fromX: 0, fromY: 0, toX: 0, toY: 0, path: [],
-      caste: null, carryingType: null, pendingAction: null, scentActive: false, scentOrigin: null, scentType: null,
+      caste: null, carryingType: null, pendingAction: null, scentActive: false, scentOrigins: [], scentType: null,
       attackTarget: null, lastAttack: 0,
       hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, invulnUntil: 0, digTile: null,
     },
