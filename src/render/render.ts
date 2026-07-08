@@ -18,9 +18,9 @@ export function renderWorldMap(state: GameState): void {
       worldCtx.fillRect(x * WORLD_TILE, y * WORLD_TILE, WORLD_TILE, WORLD_TILE);
     }
   }
-  worldCtx.fillStyle = '#9be89b';
   for (const key of state.scentTrail.keys()) {
     const [tx, ty] = key.split(',').map(Number);
+    worldCtx.fillStyle = state.scentTrailType.get(key) === 'alarm' ? '#e0725c' : '#9be89b';
     worldCtx.fillRect(tx * WORLD_TILE + 1, ty * WORLD_TILE + 1, WORLD_TILE - 2, WORLD_TILE - 2);
   }
   worldCtx.fillStyle = '#e8c44f';
@@ -66,7 +66,7 @@ export function render(state: GameState, now: number): void {
     const [tx, ty] = key.split(',').map(Number);
     const sx = tx * TILE - camX, sy = ty * TILE - camY;
     if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height) continue;
-    ctx.fillStyle = 'rgba(155,232,155,0.35)';
+    ctx.fillStyle = state.scentTrailType.get(key) === 'alarm' ? 'rgba(224,114,92,0.4)' : 'rgba(155,232,155,0.35)';
     ctx.beginPath();
     ctx.arc(sx + TILE / 2, sy + TILE / 2, 2.5, 0, Math.PI * 2);
     ctx.fill();

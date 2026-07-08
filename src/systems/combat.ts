@@ -58,7 +58,8 @@ export function damageColonist(state: GameState, hud: HudRefs, colonist: Colonis
   colonist.hp = Math.max(0, colonist.hp - amount);
   colonist.flashUntil = now + 140;
   spawnFloatingText(state, { px: colonist.px, py: colonist.py }, '-' + amount, '#e05c5c');
-  if (colonist.hp <= 0) killColonist(state, hud, colonist);
+  if (colonist.hp <= 0) { killColonist(state, hud, colonist); return; }
+  colonist.attacked = true;
 }
 
 export function respawnPlayer(state: GameState, hud: HudRefs, now: number): void {

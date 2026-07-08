@@ -1,23 +1,20 @@
-// Enemy + colonist AI: wander/chase/attack behavior, targeting, and nest
-// production (spawning a new colonist once the player requests one).
-import type { Colonist, Enemy, GameState, HudRefs, Point, Target } from '../types/types';
+// Enemy + colonist AI: wander/chase/attack behavior for enemies, dispatch to
+// the per-caste colonist FSMs (worker-ai.ts/scout-ai.ts/soldier-ai.ts), and
+// nest production (spawning a new colonist once the player requests one).
+import type { Colonist, Enemy, GameState, HudRefs, Target } from '../types/types';
 import {
-  CASTES, COLONIST_AGGRO_RADIUS, COLONIST_ATK_COOLDOWN, COLONIST_ATK_DAMAGE, COLONIST_FORAGE_RADIUS,
-  COLONIST_MOVE_DUR, COLONIST_REPATH_MS, COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, COLONIST_WANDER_RADIUS,
-  ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
+  CASTES, ENEMY_AGGRO_RADIUS, ENEMY_ATK_COOLDOWN, ENEMY_ATK_DAMAGE, ENEMY_LOSE_AGGRO_MS, ENEMY_REPATH_MS,
   ENEMY_WANDER_MAX_MS, ENEMY_WANDER_MIN_MS, ENEMY_WANDER_RADIUS, MAX_COLONISTS, NEST_FOOD_COST,
-  NEST_INCUBATE_MS, SCOUT_DIG_MOVE_DUR, SCOUT_EXPLORE_MAX_DIST,
-  SCOUT_EXPLORE_MIN_DIST,
+  NEST_INCUBATE_MS,
 } from '../constants';
-import {
-  effectiveNestFoodRadius, foodAt, isWall, nearestFoodTo, nestDistance, playerInNestRadius, randomOpenTileNear,
-  scoutCost, setWall, spawnFloatingText, updateScent,
-} from '../state/state';
+import { effectiveNestFoodRadius, isWall, nestDistance, playerInNestRadius } from '../state/state';
 import { dirBetween, spawnColonist, startStep, updateActorAnimation } from '../entities/entities';
-import { bfsToAdjacent, findPath, findWeightedPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
-import { damageColonist, damagePlayer, killEnemy } from './combat';
+import { bfsToAdjacent, findPath, hasLineOfSight, isAdjacent, type Walkable } from './pathfinding';
+import { damageColonist, damagePlayer } from './combat';
 import { showToast, updateHud } from '../ui/hud';
 import { updateWorker } from './worker-ai';
+import { updateScout } from './scout-ai';
+import { updateSoldier } from './soldier-ai';
 
 function targetPos(target: Target) {
   return { x: target.ref.tileX, y: target.ref.tileY };
@@ -112,152 +109,14 @@ export function updateEnemy(state: GameState, hud: HudRefs, enemy: Enemy, now: n
   }
 }
 
-// ---- colonist AI: workers forage food back toward the nest (their own
-// forage radius, or a food source they've noticed via a scent trail),
-// soldiers fight nearby enemies, scouts roam far afield, get pulled toward
-// any food that comes within forage radius, then commit to a straight shot
-// back to the nest laying scent the whole way once they find it — unlike a
-// player-controlled scout, which gets the same scent on/off toggle but is
-// never auto-piloted; the player keeps walking manually the whole time ----
-function attemptColonistAttack(state: GameState, hud: HudRefs, colonist: Colonist, now: number): void {
-  const t = colonist.aggroTarget;
-  if (!t || t.hp <= 0) return;
-  if (now - colonist.lastAttack < COLONIST_ATK_COOLDOWN) return;
-  colonist.lastAttack = now;
-  colonist.flashUntil = now + 140;
-  t.hp -= COLONIST_ATK_DAMAGE;
-  t.flashUntil = now + 140;
-  spawnFloatingText(state, { px: t.px, py: t.py }, '-' + COLONIST_ATK_DAMAGE, '#e8a838');
-  if (t.hp <= 0) { t.hp = 0; killEnemy(state, hud, t); colonist.aggroTarget = null; }
-}
-
-function nearestEnemyTo(state: GameState, x: number, y: number, radius: number): Enemy | null {
-  let best: Enemy | null = null, bestDist = Infinity;
-  for (const en of state.enemies) {
-    if (en.hp <= 0) continue;
-    const d = Math.hypot(en.tileX - x, en.tileY - y);
-    if (d <= radius && d < bestDist) { best = en; bestDist = d; }
-  }
-  return best;
-}
-
-// picks a random far-off point to roam toward, in a random direction and
-// distance band, and returns a path to it (or null if nothing panned out) —
-// the path may tunnel through walls, but the target itself must be real
-// open ground
-function pickExploreTarget(state: GameState, colonist: Colonist, walkable: Walkable): { target: Point; path: Point[] } | null {
-  for (let tries = 0; tries < 10; tries++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = SCOUT_EXPLORE_MIN_DIST + Math.random() * (SCOUT_EXPLORE_MAX_DIST - SCOUT_EXPLORE_MIN_DIST);
-    const tx = Math.round(colonist.tileX + Math.cos(angle) * dist);
-    const ty = Math.round(colonist.tileY + Math.sin(angle) * dist);
-    if (!walkable(tx, ty)) continue;
-    const path = findWeightedPath(colonist.tileX, colonist.tileY, tx, ty, (x, y) => scoutCost(state, x, y));
-    if (path.length) return { target: { x: tx, y: ty }, path };
-  }
-  return null;
-}
-
+// ---- colonist AI: dispatch by caste to the per-caste FSM ----
 export function updateColonist(state: GameState, hud: HudRefs, colonist: Colonist, now: number, walkable: Walkable): void {
   if (colonist.hp <= 0) return;
   if (colonist.moving) { updateActorAnimation(colonist, now); return; }
 
-  if (colonist.caste === 'soldier') {
-    if (colonist.aggroTarget && colonist.aggroTarget.hp <= 0) colonist.aggroTarget = null;
-    if (!colonist.aggroTarget) colonist.aggroTarget = nearestEnemyTo(state, colonist.tileX, colonist.tileY, COLONIST_AGGRO_RADIUS);
-    if (colonist.aggroTarget) {
-      const t = colonist.aggroTarget;
-      if (isAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY)) {
-        colonist.dir = dirBetween(colonist.tileX, colonist.tileY, t.tileX, t.tileY);
-        attemptColonistAttack(state, hud, colonist, now);
-        return;
-      }
-      if (now >= colonist.nextRepathAt || colonist.path.length === 0) {
-        colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY, walkable);
-        colonist.nextRepathAt = now + COLONIST_REPATH_MS;
-      }
-      if (colonist.path.length) {
-        const next = colonist.path.shift()!;
-        if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
-        else colonist.path = [];
-      }
-      return;
-    }
-  }
-
-  if (colonist.caste === 'worker') {
-    if (updateWorker(state, hud, colonist, now, walkable)) return;
-    // job === 'wander' falls through to the shared wander block below
-  }
-
-  if (colonist.caste === 'scout') {
-    // standing on a dug tile means it's about to move on — put the wall
-    // block back down now that it's leaving
-    if (colonist.digTile) {
-      setWall(state, colonist.digTile.x, colonist.digTile.y, true);
-      colonist.digTile = null;
-    }
-
-    updateScent(state, colonist, now);
-
-    if (colonist.scentActive) {
-      // returning to the nest, laying scent the whole way — ignore food until home
-      colonist.forageTarget = null;
-      if (colonist.path.length === 0) {
-        const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
-        const path = spot ? findWeightedPath(colonist.tileX, colonist.tileY, spot.x, spot.y, (x, y) => scoutCost(state, x, y)) : [];
-        if (path.length) { colonist.exploreTarget = spot; colonist.path = path; }
-      }
-    } else {
-      // roam: pulled toward nearby food, else random explore
-      if (colonist.forageTarget && (!foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y) || colonist.path.length === 0)) {
-        colonist.forageTarget = null;
-      }
-      if (!colonist.forageTarget) {
-        const pull = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, true);
-        if (pull) {
-          const path = findWeightedPath(colonist.tileX, colonist.tileY, pull.x, pull.y, (x, y) => scoutCost(state, x, y));
-          if (path.length) { colonist.forageTarget = pull; colonist.exploreTarget = pull; colonist.path = path; }
-        }
-      }
-      if (!colonist.forageTarget && colonist.path.length === 0) {
-        const found = pickExploreTarget(state, colonist, walkable);
-        if (found) { colonist.exploreTarget = found.target; colonist.path = found.path; }
-      }
-    }
-    if (colonist.path.length) {
-      const next = colonist.path.shift()!;
-      const dir = dirBetween(colonist.tileX, colonist.tileY, next.x, next.y);
-      if (walkable(next.x, next.y)) {
-        colonist.moveDur = COLONIST_MOVE_DUR.scout;
-        startStep(colonist, next.x, next.y, dir);
-      } else if (isWall(state, next.x, next.y)) {
-        setWall(state, next.x, next.y, false);
-        colonist.digTile = { x: next.x, y: next.y };
-        colonist.moveDur = SCOUT_DIG_MOVE_DUR;
-        startStep(colonist, next.x, next.y, dir);
-      } else {
-        colonist.path = []; colonist.exploreTarget = null;
-      }
-    }
-    return;
-  }
-
-  // wander (fallback for workers/soldiers when there's nothing to do)
-  if (now >= colonist.nextWanderAt && colonist.path.length === 0) {
-    const tx = colonist.tileX + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
-    const ty = colonist.tileY + Math.floor(Math.random() * (COLONIST_WANDER_RADIUS * 2 + 1)) - COLONIST_WANDER_RADIUS;
-    if (walkable(tx, ty)) {
-      const p = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
-      if (p.length) colonist.path = p;
-    }
-    colonist.nextWanderAt = now + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS);
-  }
-  if (colonist.path.length) {
-    const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
-    else colonist.path = [];
-  }
+  if (colonist.caste === 'soldier') { updateSoldier(state, hud, colonist, now, walkable); return; }
+  if (colonist.caste === 'worker') { updateWorker(state, hud, colonist, now, walkable); return; }
+  updateScout(state, hud, colonist, now, walkable); // only 'scout' remains
 }
 
 // ---- nest: spawning only happens when the player explicitly requests it
