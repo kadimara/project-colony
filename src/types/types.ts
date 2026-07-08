@@ -8,6 +8,11 @@ export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
 export type ScentType = 'food' | 'alarm';
+export type SoldierState =
+  | 'patrolling'
+  | 'followingAlertScent'
+  | 'attacking'
+  | 'returningToNest';
 export type ScoutState = 'scouting' | 'returningToNest';
 
 export interface Point {
@@ -57,7 +62,7 @@ export interface Player extends Actor {
   carryingType: CarryType | null;
   pendingAction: PendingAction | null;
   scentActive: boolean;
-  scentOrigin: Point | null;
+  scentOrigins: Point[];
   scentType: ScentType | null;
   attackTarget: Enemy | null;
   lastAttack: number;
@@ -88,6 +93,7 @@ export interface Colonist extends Actor {
   hp: number;
   maxHp: number;
   carrying: CarryType | null;
+  soldierState: SoldierState;
   scoutState: ScoutState;
   dropTarget: Point | null;
   forageTarget: FoodItem | null;
@@ -103,7 +109,7 @@ export interface Colonist extends Actor {
   attacked: boolean;
   exploreTarget: Point | null;
   scentActive: boolean;
-  scentOrigin: Point | null;
+  scentOrigins: Point[];
   scentType: ScentType | null;
   digTile: Point | null;
 }
@@ -182,7 +188,7 @@ export interface GameState {
   nest: Nest;
   player: Player;
   scentTrail: Map<string, number>;
-  scentTrailSource: Map<string, Point>;
+  scentTrailSource: Map<string, Point[]>;
   scentTrailType: Map<string, ScentType>;
   floatingTexts: FloatingText[];
 

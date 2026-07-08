@@ -95,8 +95,8 @@ function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
     maxHp: COLONIST_MAX_HP[caste],
     path: [],
     carrying: null,
-    scoutState: 'scouting',
     soldierState: 'patrolling',
+    scoutState: 'scouting',
     dropTarget: null,
     forageTarget: null,
     carryOrigin: null,
@@ -114,7 +114,7 @@ function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
     attacked: false,
     exploreTarget: null,
     scentActive: false,
-    scentOrigin: null,
+    scentOrigins: [],
     scentType: null,
     digTile: null,
   };

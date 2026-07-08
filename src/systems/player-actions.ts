@@ -86,7 +86,7 @@ export function applyCaste(state: GameState, hud: HudRefs, casteKey: CasteKey, r
     player.tileX = SPAWN_X; player.tileY = SPAWN_Y;
     player.px = SPAWN_X * TILE; player.py = SPAWN_Y * TILE;
   }
-  player.scentActive = false; player.scentOrigin = null;
+  player.scentActive = false; player.scentOrigins = [];
   updateHud(state, hud);
 }
 
