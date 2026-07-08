@@ -8,23 +8,41 @@ export const SPAWN_Y = Math.floor(MAP_H / 2);
 export const INITIAL_SEED = 393845991;
 
 export const CASTES: Record<CasteKey, CasteDef> = {
-  worker:  { name: 'Worker',  color: '#d99a3f', edge: '#8f5f1f', moveDur: 240, inset: 3 },
-  soldier: { name: 'Soldier', color: '#b23a3a', edge: '#6e2020', moveDur: 260, inset: 1 },
-  scout:   { name: 'Scout',   color: '#3fae9e', edge: '#1f6b5f', moveDur: 190, inset: 3 },
+  worker: {
+    name: 'Worker',
+    color: '#d99a3f',
+    edge: '#8f5f1f',
+    moveDur: 240,
+    inset: 3,
+  },
+  soldier: {
+    name: 'Soldier',
+    color: '#b23a3a',
+    edge: '#6e2020',
+    moveDur: 260,
+    inset: 1,
+  },
+  scout: {
+    name: 'Scout',
+    color: '#3fae9e',
+    edge: '#1f6b5f',
+    moveDur: 190,
+    inset: 3,
+  },
 };
 
 // each zoom level uses a clean integer CSS scale so tiles stay crisp
 // vpw * TILE * scale = displayed px width (target: 1024×1024)
 export const ZOOM_LEVELS: ZoomLevel[] = [
-  { vpw: 16, vph: 16, scale: 4 },  // zoomed in   — 1024×1024px
-  { vpw: 21, vph: 21, scale: 3 },  // default     — 1008×1008px
-  { vpw: 32, vph: 32, scale: 2 },  // zoomed out  — 1024×1024px
-  { vpw: 64, vph: 64, scale: 1 },  // far          — 1024×1024px
+  { vpw: 16, vph: 16, scale: 4 }, // zoomed in   — 1024×1024px
+  { vpw: 21, vph: 21, scale: 3 }, // default     — 1008×1008px
+  { vpw: 32, vph: 32, scale: 2 }, // zoomed out  — 1024×1024px
+  { vpw: 64, vph: 64, scale: 1 }, // far          — 1024×1024px
 ];
 export const DEFAULT_ZOOM_INDEX = 1;
 
 export const WORLD_TILE = 4;
-export const INITIAL_FOOD_COUNT = 40;
+export const INITIAL_FOOD_COUNT = 100;
 
 // ---- player ----
 export const PLAYER_MAX_HP = 20;
@@ -36,7 +54,7 @@ export const SOLDIER_ATK_DAMAGE = 3;
 export const SOLDIER_ATK_COOLDOWN = 650;
 
 // ---- roaming enemies: wander until they see you, then chase and attack ----
-export const ENEMY_COUNT = 5;
+export const ENEMY_COUNT = 20;
 export const ENEMY_MAX_HP = 10;
 export const ENEMY_MOVE_DUR = 280;
 export const ENEMY_ATK_DAMAGE = 2;
@@ -52,19 +70,27 @@ export const ENEMY_SPAWN_MIN_DIST = 10; // keep initial spawns away from the pla
 // ---- nest: fixed 2x2 structure. Player manually spawns ants here,
 // consuming food that must be sitting within NEST_FOOD_RADIUS tiles ----
 export const NEST_SIZE = 2;
-export const NEST_FOOD_RADIUS = 3;    // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
-export const NEST_FOOD_COST = 1;      // 1 ant costs 1 food, consumed from the radius
+export const NEST_FOOD_RADIUS = 3; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
+export const NEST_FOOD_COST = 1; // 1 ant costs 1 food, consumed from the radius
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
 export const MAX_COLONISTS = 15;
 
 // nest.level currently never advances (nothing credits it since workers
 // stopped doing long-range expansion digging) — effectiveNestFoodRadius
 // keeps this per-level formula anyway since it's harmless at level 0
-export const NEST_FOOD_RADIUS_PER_LEVEL = 1;
+export const NEST_FOOD_RADIUS_PER_LEVEL = 3;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
-export const COLONIST_MAX_HP: Record<CasteKey, number> = { worker: 10, soldier: 16, scout: 8 };
-export const COLONIST_MOVE_DUR: Record<CasteKey, number> = { worker: 260, soldier: 280, scout: 200 };
+export const COLONIST_MAX_HP: Record<CasteKey, number> = {
+  worker: 10,
+  soldier: 16,
+  scout: 8,
+};
+export const COLONIST_MOVE_DUR: Record<CasteKey, number> = {
+  worker: 260,
+  soldier: 280,
+  scout: 200,
+};
 export const COLONIST_ATK_DAMAGE = 3;
 export const COLONIST_ATK_COOLDOWN = 700;
 export const COLONIST_AGGRO_RADIUS = 5;
@@ -74,7 +100,7 @@ export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_REPATH_MS = 500;
 
 // ---- soldiers: patrol near the nest until an alarm trail leads them to a fight ----
-export const SOLDIER_PATROL_RADIUS = 6;       // how far from the nest a patrolling soldier wanders
+export const SOLDIER_PATROL_RADIUS = 6; // how far from the nest a patrolling soldier wanders
 export const SOLDIER_ALERT_SCENT_RADIUS = 12; // scan range for detecting an alarm-tagged trail tile
 
 // how far out to scan when a worker looks for a frontier tile (open ground

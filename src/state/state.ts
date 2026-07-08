@@ -4,7 +4,7 @@
 // `spawnEnemies` as a callback parameter so the two files don't form an
 // import cycle (entities/entities.ts imports randomOpenTile/randomOpenTileNear
 // from here, one direction only).
-import type { FoodItem, GameRefs, GameState, Point, ScentType } from '../types/types';
+import type { CarryType, Colonist, FoodItem, GameRefs, GameState, Point, ScentType } from '../types/types';
 import {
   INITIAL_FOOD_COUNT, INITIAL_SEED, MAP_H, MAP_W, NEST_FOOD_RADIUS,
   NEST_FOOD_RADIUS_PER_LEVEL, PLAYER_MAX_HP, SCENT_TRAIL_LIFETIME_MS, SCOUT_DIG_COST, SPAWN_X, SPAWN_Y, TILE,
@@ -23,7 +23,15 @@ export function isWall(state: GameState, x: number, y: number): boolean {
 
 export function setWall(state: GameState, x: number, y: number, solid: boolean): void {
   const key = x + ',' + y;
-  if (solid) state.wallSet.add(key); else state.wallSet.delete(key);
+  if (solid) {
+    state.wallSet.add(key);
+  } else {
+    state.wallSet.delete(key);
+    // removing any wall can reopen a route to others that were previously
+    // unreachable, so a full clear (rather than tracking exactly which
+    // entries it affects) is the simplest correct invalidation
+    state.unreachableWalls.clear();
+  }
   patchGroundAtlasTile(state.refs, state.map, x, y, solid);
 }
 
@@ -186,13 +194,14 @@ export function randomOpenTileNear(state: GameState, cx: number, cy: number, rad
 // lets a worker skip a specific food tile it just found unreachable, so it
 // tries the next-nearest instead of picking the exact same one right back
 // (nearestFoodTo is plain Euclidean distance, with no reachability check).
-export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false, avoidPos?: Point | null): FoodItem | null {
+export function nearestFoodTo(state: GameState, x: number, y: number, radius: number, excludeScented = false, avoidPos?: Point | null, exclude?: Set<string>): FoodItem | null {
   let best: FoodItem | null = null, bestDist = Infinity;
   for (const f of state.foodItems) {
     if (f.x === x && f.y === y) continue;
     if (nestDistance(state, f.x, f.y) <= effectiveNestFoodRadius(state)) continue;
     if (excludeScented && state.scentTrailSource.has(f.x + ',' + f.y)) continue;
     if (avoidPos && f.x === avoidPos.x && f.y === avoidPos.y) continue;
+    if (exclude && exclude.has(f.x + ',' + f.y)) continue;
     const d = Math.hypot(f.x - x, f.y - y);
     if (d <= radius && d < bestDist) { best = f; bestDist = d; }
   }
@@ -201,8 +210,18 @@ export function nearestFoodTo(state: GameState, x: number, y: number, radius: nu
 
 // extends a worker's food awareness beyond its forage radius: if a
 // scent-trail tile is within range, treat the food at that trail's origin
-// as spotted too (as long as it's still actually there)
-export function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number): FoodItem | null {
+// as spotted too (as long as it's still actually there). A trail can outlive
+// the nest radius growing past its origin (the trail was laid when the food
+// was genuinely out of range, but a since-leveled-up nest may now cover it)
+// — that food is already effectively delivered, so it's excluded here just
+// like nearestFoodTo excludes it, otherwise a worker would "forage" it only
+// to have carryingFoodBranch see it's already nearNest and drop it right
+// back on the spot it was just picked up from. The +1 buffer covers the same
+// case one tile early: isAdjacent is a single orthogonal step, which moves
+// nestDistance by at most 1, so food only barely past the radius still lets
+// the approach tile land inside it — picked up and delivered on the same
+// step, reading as the food having simply vanished.
+export function nearestFoodViaTrail(state: GameState, x: number, y: number, radius: number, exclude?: Set<string>): FoodItem | null {
   let best: FoodItem | null = null, bestDist = Infinity;
   for (const key of state.scentTrail.keys()) {
     if (state.scentTrailType.get(key) !== 'food') continue;
@@ -211,9 +230,58 @@ export function nearestFoodViaTrail(state: GameState, x: number, y: number, radi
     if (d > radius || d >= bestDist) continue;
     const origin = state.scentTrailSource.get(key);
     if (!origin || !foodAt(state, origin.x, origin.y)) continue;
+    if (nestDistance(state, origin.x, origin.y) <= effectiveNestFoodRadius(state) + 1) continue;
+    if (exclude && exclude.has(origin.x + ',' + origin.y)) continue;
     best = origin; bestDist = d;
   }
   return best;
+}
+
+// every other live colonist's currently-claimed forage target (worker or
+// scout — both use forageTarget), keyed "x,y" — lets a target-picking query
+// skip food someone else is already en route to instead of every idle
+// colonist converging on the single globally-nearest item
+export function claimedForageTargets(state: GameState, exceptColonist?: Colonist): Set<string> {
+  const claimed = new Set<string>();
+  for (const c of state.colonists) {
+    if (c === exceptColonist || !c.forageTarget || c.hp <= 0) continue;
+    claimed.add(c.forageTarget.x + ',' + c.forageTarget.y);
+  }
+  return claimed;
+}
+
+// places a food item at (tx,ty), falling back to a neighboring open tile if
+// that exact spot is occupied — the same "drop it here, or nearby" shape as
+// combat.ts's dropFoodOnDeath, reused so a carried item never has nowhere to go
+export function placeFoodNear(state: GameState, tx: number, ty: number): boolean {
+  const freeAt = (x: number, y: number) =>
+    terrainWalkable(state, x, y) && !isWall(state, x, y) && !foodAt(state, x, y)
+    && !isEnemyAt(state, x, y) && !isNestAt(state, x, y) && !isColonistAt(state, x, y) && !isPlayerAt(state, x, y);
+  let dropX = tx, dropY = ty;
+  if (!freeAt(dropX, dropY)) {
+    const ring = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+    let placed = false;
+    for (const [dx, dy] of ring) {
+      if (freeAt(tx + dx, ty + dy)) { dropX = tx + dx; dropY = ty + dy; placed = true; break; }
+    }
+    if (!placed) return false;
+  }
+  state.foodItems.push({ x: dropX, y: dropY });
+  return true;
+}
+
+// restores whatever a colonist is carrying to the world before clearing the
+// flag — an attack interrupt or death should never simply delete a held item,
+// mirroring player-actions.ts's applyCaste "drop it where you stand" pattern
+export function dropCarried(state: GameState, colonist: { tileX: number; tileY: number; carrying: CarryType | null }): void {
+  if (colonist.carrying === 'obstacle') {
+    if (!isWall(state, colonist.tileX, colonist.tileY) && !foodAt(state, colonist.tileX, colonist.tileY)) {
+      setWall(state, colonist.tileX, colonist.tileY, true);
+    }
+  } else if (colonist.carrying === 'food') {
+    placeFoodNear(state, colonist.tileX, colonist.tileY);
+  }
+  colonist.carrying = null;
 }
 
 // mirrors nearestFoodViaTrail for the alarm trail: nearest alarm-tagged
@@ -280,6 +348,24 @@ export function findFrontierDropSite(state: GameState, originX: number, originY:
   return best;
 }
 
+// the single wall tile closest to the nest within radius — an idle worker at
+// the nest should clear this one first rather than whatever happens to be
+// standing next to it, so the nest's surroundings open up from the inside out.
+// Skips anything already flagged unreachable (see setWall) so a wall with no
+// walkable-only approach doesn't get re-picked and stalled on every tick.
+export function nearestWallToNest(state: GameState, radius: number): Point | null {
+  let best: Point | null = null, bestDist = Infinity;
+  for (let y = state.nest.y - radius; y <= state.nest.y + radius; y++) {
+    for (let x = state.nest.x - radius; x <= state.nest.x + radius; x++) {
+      if (!isWall(state, x, y)) continue;
+      if (state.unreachableWalls.has(x + ',' + y)) continue;
+      const d = nestDistance(state, x, y);
+      if (d < bestDist) { best = { x, y }; bestDist = d; }
+    }
+  }
+  return best;
+}
+
 export function spawnFloatingText(state: GameState, entity: { px: number; py: number }, text: string, color: string): void {
   state.floatingTexts.push({ worldX: entity.px + TILE / 2, worldY: entity.py, text, color, born: performance.now() });
 }
@@ -292,6 +378,7 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   state.rng = mulberry32(newSeed);
 
   state.wallSet = buildWalls(newSeed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
+  state.unreachableWalls.clear();
   buildGroundAtlas(state.refs, state.map, state.wallSet);
   state.foodItems.length = 0;
   for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
@@ -336,6 +423,7 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
     rng,
     map,
     wallSet,
+    unreachableWalls: new Set(),
     foodItems: [],
     enemies: [],
     colonists: [],
