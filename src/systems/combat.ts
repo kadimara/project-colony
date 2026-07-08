@@ -7,7 +7,7 @@ import {
   PLAYER_HIT_INVULN_MS, PLAYER_RESPAWN_INVULN_MS, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, setWall, spawnFloatingText, terrainWalkable,
+  dropCarried, foodAt, isColonistAt, isEnemyAt, isNestAt, isPlayerAt, isWall, setWall, spawnFloatingText, terrainWalkable,
 } from '../state/state';
 import { showToast, updateHud } from '../ui/hud';
 
@@ -48,6 +48,9 @@ function killColonist(state: GameState, hud: HudRefs, colonist: Colonist): void 
     setWall(state, colonist.digTile.x, colonist.digTile.y, true);
     colonist.digTile = null;
   }
+  // a worker caught mid-errand is carrying food or a dug wall block — restore
+  // it to the world instead of letting it vanish along with the colonist
+  dropCarried(state, colonist);
   spawnFloatingText(state, { px: colonist.tileX * TILE, py: colonist.tileY * TILE }, 'defeated!', '#c1633c');
   dropFoodOnDeath(state, colonist.tileX, colonist.tileY);
   updateHud(state, hud);
