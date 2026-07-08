@@ -8,7 +8,12 @@ export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
 export type ScentType = 'food' | 'alarm';
-export type SoldierState = 'patrolling' | 'followingAlertScent' | 'attacking' | 'returningToNest';
+export type SoldierState =
+  | 'patrolling'
+  | 'followingAlertScent'
+  | 'attacking'
+  | 'returningToNest';
+export type ScoutState = 'scouting' | 'returningToNest';
 
 export interface Point {
   x: number;
@@ -89,6 +94,7 @@ export interface Colonist extends Actor {
   maxHp: number;
   carrying: CarryType | null;
   soldierState: SoldierState;
+  scoutState: ScoutState;
   dropTarget: Point | null;
   forageTarget: FoodItem | null;
   carryOrigin: 'atNest' | 'followingScent' | null;
