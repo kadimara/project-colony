@@ -43,7 +43,7 @@ function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
     fromX: x, fromY: y, toX: x, toY: y,
     hp: COLONIST_MAX_HP[caste], maxHp: COLONIST_MAX_HP[caste],
     path: [], carrying: null,
-    scoutState: 'scouting', soldierState: 'patrolling',
+    scoutState: 'scouting',
     dropTarget: null, forageTarget: null, carryOrigin: null, alertTarget: null, aggroTarget: null,
     nextWanderAt: performance.now() + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS),
     nextRepathAt: 0, lastAttack: 0, aggroUntil: 0, flashUntil: 0, attacked: false,
