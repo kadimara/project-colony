@@ -25,7 +25,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    max-width: 900px;
+    max-width: 1100px;
     width: 100%;
   }
   .title {
@@ -84,7 +84,7 @@
     color: var(--text-dim);
     text-align: center;
     line-height: 1.9;
-    max-width: 760px;
+    max-width: 1024px;
   }
   .key {
     display: inline-block;

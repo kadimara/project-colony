@@ -14,11 +14,12 @@ export const CASTES: Record<CasteKey, CasteDef> = {
 };
 
 // each zoom level uses a clean integer CSS scale so tiles stay crisp
+// vpw * TILE * scale = displayed px width (target: 1024×1024)
 export const ZOOM_LEVELS: ZoomLevel[] = [
-  { vpw: 13, vph: 9, scale: 4 },   // zoomed in
-  { vpw: 17, vph: 12, scale: 3 },  // default
-  { vpw: 26, vph: 18, scale: 2 },  // zoomed out
-  { vpw: 52, vph: 36, scale: 1 },  // far — for scanning the bigger world
+  { vpw: 16, vph: 16, scale: 4 },  // zoomed in   — 1024×1024px
+  { vpw: 21, vph: 21, scale: 3 },  // default     — 1008×1008px
+  { vpw: 32, vph: 32, scale: 2 },  // zoomed out  — 1024×1024px
+  { vpw: 64, vph: 64, scale: 1 },  // far          — 1024×1024px
 ];
 export const DEFAULT_ZOOM_INDEX = 1;
 
