@@ -9,7 +9,6 @@ export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
 export type ScentType = 'food' | 'alarm';
 export type ScoutState = 'scouting' | 'returningToNest';
-export type WorkerState = 'atNest' | 'followingScent' | 'carryingFood' | 'carryingWall' | 'returningToNest';
 export type SoldierState = 'patrolling' | 'followingAlertScent' | 'attacking' | 'returningToNest';
 
 export interface Point {
@@ -90,7 +89,6 @@ export interface Colonist extends Actor {
   hp: number;
   maxHp: number;
   carrying: CarryType | null;
-  workerState: WorkerState;
   scoutState: ScoutState;
   soldierState: SoldierState;
   dropTarget: Point | null;
