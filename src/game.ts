@@ -4,7 +4,7 @@
 import type { CasteKey, GameRefs } from './types/types';
 import { DEFAULT_ZOOM_INDEX, MAP_H, MAP_W, TILE, WORLD_TILE } from './constants';
 import {
-  createGameState, foodAt, isNestAt, obstacleAt, pruneScentTrail, regenerateWorld, walkable as stateWalkable,
+  createGameState, enemyAt, foodAt, isNestAt, obstacleAt, pruneScentTrail, regenerateWorld, walkable as stateWalkable,
 } from './state/state';
 import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './entities/entities';
 import { applyZoom, screenToTile } from './render/camera';
@@ -93,7 +93,7 @@ export function initColonyGame(): void {
     }
 
     if (player.caste === 'soldier') {
-      const enemyHit = state.enemies.find((en) => en.hp > 0 && en.tileX === x && en.tileY === y);
+      const enemyHit = enemyAt(state, x, y);
       if (enemyHit) {
         player.attackTarget = enemyHit;
         player.pendingAction = null;

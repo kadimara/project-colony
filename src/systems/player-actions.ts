@@ -6,8 +6,8 @@ import {
   CASTES, SCOUT_DIG_MOVE_DUR, SOLDIER_ATK_DAMAGE, SOLDIER_ATK_COOLDOWN, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
 import {
-  foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, setWall, spawnFloatingText, terrainWalkable,
-  updateScent,
+  addFoodItem, foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, removeFoodItem, scoutCost, setWall,
+  spawnFloatingText, terrainWalkable, updateScent,
 } from '../state/state';
 import { startStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, isAdjacent, type Walkable } from './pathfinding';
@@ -73,7 +73,7 @@ export function applyCaste(state: GameState, hud: HudRefs, casteKey: CasteKey, r
 
   if (player.carryingType && !isWall(state, player.tileX, player.tileY) && !foodAt(state, player.tileX, player.tileY)) {
     if (player.carryingType === 'obstacle') setWall(state, player.tileX, player.tileY, true);
-    else state.foodItems.push({ x: player.tileX, y: player.tileY });
+    else addFoodItem(state, player.tileX, player.tileY);
   }
   player.carryingType = null;
 
@@ -96,9 +96,9 @@ export function doPickup(state: GameState, hud: HudRefs, x: number, y: number, k
     if (!isWall(state, x, y)) return;
     setWall(state, x, y, false);
   } else {
-    const idx = state.foodItems.findIndex((f) => f.x === x && f.y === y);
-    if (idx === -1) return;
-    state.foodItems.splice(idx, 1);
+    const item = foodAt(state, x, y);
+    if (!item) return;
+    removeFoodItem(state, item);
   }
   player.carryingType = kind;
   spawnFloatingText(state, player, 'picked up ' + kind, kind === 'obstacle' ? '#b0aaa0' : '#e8c44f');
@@ -109,7 +109,7 @@ export function doPlace(state: GameState, hud: HudRefs, x: number, y: number): v
   const { player } = state;
   if (!terrainWalkable(state, x, y) || isWall(state, x, y) || foodAt(state, x, y) || isEnemyAt(state, x, y) || isNestAt(state, x, y) || isColonistAt(state, x, y)) return;
   if (player.carryingType === 'obstacle') setWall(state, x, y, true);
-  else if (player.carryingType === 'food') state.foodItems.push({ x, y });
+  else if (player.carryingType === 'food') addFoodItem(state, x, y);
   spawnFloatingText(state, player, 'placed ' + player.carryingType, '#ecdfc4');
   player.carryingType = null;
   updateHud(state, hud);

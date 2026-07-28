@@ -13,7 +13,7 @@ import {
   COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, SOLDIER_ALERT_SCENT_RADIUS, SOLDIER_PATROL_RADIUS,
 } from '../constants';
 import { effectiveNestFoodRadius, nearestAlarmSource, nestDistance, randomOpenTileNear, spawnFloatingText } from '../state/state';
-import { dirBetween, startStep } from '../entities/entities';
+import { dirBetween, startColonistStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, isAdjacent, type Walkable } from './pathfinding';
 import { killEnemy } from './combat';
 
@@ -61,7 +61,7 @@ function runPatrolling(state: GameState, colonist: Colonist, now: number, walkab
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
     else colonist.path = [];
   }
 }
@@ -90,7 +90,7 @@ function runFollowingAlertScent(state: GameState, colonist: Colonist, walkable: 
     if (colonist.path.length === 0) { colonist.alertTarget = null; colonist.soldierState = 'patrolling'; return; }
   }
   const next = colonist.path.shift()!;
-  if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+  if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
   else colonist.path = [];
 }
 
@@ -115,7 +115,7 @@ function runAttacking(state: GameState, hud: HudRefs, colonist: Colonist, now: n
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
     else colonist.path = [];
   }
 }
@@ -134,7 +134,7 @@ function runReturningToNest(state: GameState, colonist: Colonist, walkable: Walk
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
     else colonist.path = [];
   }
 }

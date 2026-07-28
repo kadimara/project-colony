@@ -10,7 +10,7 @@ import {
   effectiveNestFoodRadius, foodAt, isWall, nearestFoodTo, randomOpenTileNear, scoutCost, setWall,
   triggerAlarm, updateScent,
 } from '../state/state';
-import { dirBetween, startStep } from '../entities/entities';
+import { dirBetween, startColonistStep } from '../entities/entities';
 import { findWeightedPath, type Walkable } from './pathfinding';
 
 // picks a random far-off point to roam toward, in a random direction and
@@ -64,12 +64,12 @@ function movePathStep(state: GameState, colonist: Colonist, walkable: Walkable):
   const dir = dirBetween(colonist.tileX, colonist.tileY, next.x, next.y);
   if (walkable(next.x, next.y)) {
     colonist.moveDur = COLONIST_MOVE_DUR.scout;
-    startStep(colonist, next.x, next.y, dir);
+    startColonistStep(state, colonist, next.x, next.y, dir);
   } else if (isWall(state, next.x, next.y)) {
     setWall(state, next.x, next.y, false);
     colonist.digTile = { x: next.x, y: next.y };
     colonist.moveDur = SCOUT_DIG_MOVE_DUR;
-    startStep(colonist, next.x, next.y, dir);
+    startColonistStep(state, colonist, next.x, next.y, dir);
   } else {
     colonist.path = [];
     colonist.exploreTarget = null;

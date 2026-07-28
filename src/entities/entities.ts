@@ -9,7 +9,7 @@ import {
   ENEMY_COUNT, ENEMY_MAX_HP, ENEMY_MOVE_DUR, ENEMY_SPAWN_MIN_DIST, ENEMY_WANDER_MAX_MS,
   ENEMY_WANDER_MIN_MS, MAX_COLONISTS, SPAWN_X, SPAWN_Y, TILE,
 } from '../constants';
-import { randomOpenTile, randomOpenTileNear } from '../state/state';
+import { gridAdd, gridMove, randomOpenTile, randomOpenTileNear } from '../state/state';
 
 function makeEnemy(x: number, y: number): Enemy {
   return {
@@ -25,6 +25,7 @@ function makeEnemy(x: number, y: number): Enemy {
 
 export function spawnEnemies(state: GameState): void {
   state.enemies.length = 0;
+  state.enemyGrid.clear();
   for (let i = 0; i < ENEMY_COUNT; i++) {
     let spot: Point | null = null;
     for (let tries = 0; tries < 30; tries++) {
@@ -32,7 +33,11 @@ export function spawnEnemies(state: GameState): void {
       if (!s) break;
       if (Math.hypot(s.x - SPAWN_X, s.y - SPAWN_Y) >= ENEMY_SPAWN_MIN_DIST) { spot = s; break; }
     }
-    if (spot) state.enemies.push(makeEnemy(spot.x, spot.y));
+    if (spot) {
+      const enemy = makeEnemy(spot.x, spot.y);
+      state.enemies.push(enemy);
+      gridAdd(state.enemyGrid, spot.x, spot.y, enemy);
+    }
   }
 }
 
@@ -54,7 +59,11 @@ function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
 export function spawnColonist(state: GameState, caste: CasteKey): void {
   if (state.colonists.length >= MAX_COLONISTS) return;
   const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, 4) || randomOpenTile(state);
-  if (spot) state.colonists.push(makeColonist(caste, spot.x, spot.y));
+  if (spot) {
+    const colonist = makeColonist(caste, spot.x, spot.y);
+    state.colonists.push(colonist);
+    gridAdd(state.colonistGrid, spot.x, spot.y, colonist);
+  }
 }
 
 // ---- generic actor movement primitives (shared by player/enemy/colonist) ----
@@ -72,6 +81,20 @@ export function startStep(actor: Actor, nx: number, ny: number, dir: Dir): void 
   actor.tileX = nx; actor.tileY = ny;
   actor.moving = true;
   actor.moveStart = performance.now();
+}
+
+// like startStep, but also keeps the colonist/enemy spatial grid in sync —
+// used everywhere a colonist/enemy (not the player) commits to a tile move
+export function startColonistStep(state: GameState, colonist: Colonist, nx: number, ny: number, dir: Dir): void {
+  const fromX = colonist.tileX, fromY = colonist.tileY;
+  startStep(colonist, nx, ny, dir);
+  gridMove(state.colonistGrid, fromX, fromY, nx, ny, colonist);
+}
+
+export function startEnemyStep(state: GameState, enemy: Enemy, nx: number, ny: number, dir: Dir): void {
+  const fromX = enemy.tileX, fromY = enemy.tileY;
+  startStep(enemy, nx, ny, dir);
+  gridMove(state.enemyGrid, fromX, fromY, nx, ny, enemy);
 }
 
 export function updateActorAnimation(actor: Actor, now: number): void {

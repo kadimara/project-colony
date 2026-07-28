@@ -31,16 +31,68 @@ export function obstacleAt(state: GameState, x: number, y: number): Point | null
   return isWall(state, x, y) ? { x, y } : null;
 }
 
+// ---- spatial hash grids for entity occupancy (colonists/enemies/food) ----
+// mirrors the wallSet/scentTrail "x,y" string-key convention above, so
+// occupancy/proximity checks are O(1)/local instead of O(n) array scans.
+// Entities are kept in sync at every spawn, death, and tile-to-tile move —
+// see gridAdd/gridRemove/gridMove and their call sites in entities.ts/combat.ts.
+function gridKey(x: number, y: number): string {
+  return x + ',' + y;
+}
+
+export function gridAdd<T>(grid: Map<string, Set<T>>, x: number, y: number, entity: T): void {
+  const key = gridKey(x, y);
+  let set = grid.get(key);
+  if (!set) { set = new Set(); grid.set(key, set); }
+  set.add(entity);
+}
+
+export function gridRemove<T>(grid: Map<string, Set<T>>, x: number, y: number, entity: T): void {
+  const key = gridKey(x, y);
+  const set = grid.get(key);
+  if (!set) return;
+  set.delete(entity);
+  if (set.size === 0) grid.delete(key);
+}
+
+export function gridMove<T>(grid: Map<string, Set<T>>, fromX: number, fromY: number, toX: number, toY: number, entity: T): void {
+  if (fromX === toX && fromY === toY) return;
+  gridRemove(grid, fromX, fromY, entity);
+  gridAdd(grid, toX, toY, entity);
+}
+
+// food has at most one item per tile (every push site already guards with
+// !foodAt first), so foodGrid is a plain value map rather than a Set
+export function addFoodItem(state: GameState, x: number, y: number): void {
+  const item: FoodItem = { x, y };
+  state.foodItems.push(item);
+  state.foodGrid.set(gridKey(x, y), item);
+}
+
+export function removeFoodItem(state: GameState, item: FoodItem): void {
+  const idx = state.foodItems.indexOf(item);
+  if (idx !== -1) state.foodItems.splice(idx, 1);
+  state.foodGrid.delete(gridKey(item.x, item.y));
+}
+
 export function foodAt(state: GameState, x: number, y: number) {
-  return state.foodItems.find((f) => f.x === x && f.y === y);
+  return state.foodGrid.get(gridKey(x, y));
+}
+
+// grid entries are only ever living entities: removal happens in the same
+// synchronous call that kills the entity (see killEnemy/killColonist in
+// combat.ts), so no dead entity ever lingers in the grid
+export function enemyAt(state: GameState, x: number, y: number) {
+  const set = state.enemyGrid.get(gridKey(x, y));
+  return set ? set.values().next().value : undefined;
 }
 
 export function isEnemyAt(state: GameState, x: number, y: number): boolean {
-  return state.enemies.some((e) => e.hp > 0 && e.tileX === x && e.tileY === y);
+  return state.enemyGrid.has(gridKey(x, y));
 }
 
 export function isColonistAt(state: GameState, x: number, y: number): boolean {
-  return state.colonists.some((c) => c.hp > 0 && c.tileX === x && c.tileY === y);
+  return state.colonistGrid.has(gridKey(x, y));
 }
 
 export function isPlayerAt(state: GameState, x: number, y: number): boolean {
@@ -294,7 +346,8 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   state.wallSet = buildWalls(newSeed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
   buildGroundAtlas(state.refs, state.map, state.wallSet);
   state.foodItems.length = 0;
-  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
+  state.foodGrid.clear();
+  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) addFoodItem(state, s.x, s.y); }
   spawnEnemies(state);
 
   state.nest.x = SPAWN_X + 1; state.nest.y = SPAWN_Y;
@@ -302,6 +355,7 @@ export function regenerateWorld(state: GameState, newSeed: number, spawnEnemies:
   state.nest.incubating = false; state.nest.incubateStart = 0;
   state.nest.level = 0; state.nest.workProgress = 0;
   state.colonists.length = 0;
+  state.colonistGrid.clear();
 
   state.scentTrail.clear();
   state.scentTrailSource.clear();
@@ -339,6 +393,9 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
     foodItems: [],
     enemies: [],
     colonists: [],
+    colonistGrid: new Map(),
+    enemyGrid: new Map(),
+    foodGrid: new Map(),
     nest: { x: SPAWN_X + 1, y: SPAWN_Y, incubating: false, incubateStart: 0, pendingCaste: null, level: 0, workProgress: 0 },
     player: {
       tileX: SPAWN_X, tileY: SPAWN_Y, px: SPAWN_X * TILE, py: SPAWN_Y * TILE,
@@ -360,7 +417,7 @@ export function createGameState(refs: GameRefs, spawnEnemies: (state: GameState)
   };
 
   buildGroundAtlas(refs, map, wallSet);
-  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) state.foodItems.push(s); }
+  for (let i = 0; i < INITIAL_FOOD_COUNT; i++) { const s = randomOpenTile(state); if (s) addFoodItem(state, s.x, s.y); }
   spawnEnemies(state);
 
   return state;

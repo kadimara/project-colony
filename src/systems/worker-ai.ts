@@ -9,10 +9,10 @@
 import type { Colonist, GameState, HudRefs } from '../types/types';
 import { COLONIST_FORAGE_RADIUS, WORKER_FRONTIER_SEARCH_RADIUS } from '../constants';
 import {
-  effectiveNestFoodRadius, findFrontierDropSite, foodAt, isWall, nearestFoodViaTrail,
-  nestDistance, randomOpenTileNear, scoutCost, setWall, spawnFloatingText, triggerAlarm, updateScent,
+  addFoodItem, effectiveNestFoodRadius, findFrontierDropSite, foodAt, isWall, nearestFoodViaTrail,
+  nestDistance, randomOpenTileNear, removeFoodItem, scoutCost, setWall, spawnFloatingText, triggerAlarm, updateScent,
 } from '../state/state';
-import { dirBetween, startStep } from '../entities/entities';
+import { dirBetween, startColonistStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPathToAdjacent, isAdjacent, type Walkable } from './pathfinding';
 
 const NEST_NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
@@ -29,7 +29,7 @@ function runAtNest(state: GameState, colonist: Colonist, walkable: Walkable): vo
     }
     if (colonist.path.length) {
       const next = colonist.path.shift()!;
-      if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
       else colonist.path = [];
     }
     return;
@@ -59,8 +59,8 @@ function runAtNest(state: GameState, colonist: Colonist, walkable: Walkable): vo
 function runFollowingScent(state: GameState, colonist: Colonist): void {
   const f = colonist.forageTarget!;
   if (isAdjacent(colonist.tileX, colonist.tileY, f.x, f.y)) {
-    const idx = state.foodItems.findIndex((fi) => fi.x === f.x && fi.y === f.y);
-    if (idx !== -1) { state.foodItems.splice(idx, 1); colonist.carrying = 'food'; }
+    const item = foodAt(state, f.x, f.y);
+    if (item) { removeFoodItem(state, item); colonist.carrying = 'food'; }
     colonist.forageTarget = null;
     colonist.path = [];
     colonist.workerState = 'carryingFood';
@@ -81,14 +81,14 @@ function runFollowingScent(state: GameState, colonist: Colonist): void {
     return;
   }
   colonist.path.shift();
-  startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+  startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
 }
 
 // carrying food back to drop it within range of the nest
 function runCarryingFood(state: GameState, colonist: Colonist, walkable: Walkable): void {
   const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= effectiveNestFoodRadius(state);
   if (nearNest) {
-    if (!foodAt(state, colonist.tileX, colonist.tileY)) state.foodItems.push({ x: colonist.tileX, y: colonist.tileY });
+    if (!foodAt(state, colonist.tileX, colonist.tileY)) addFoodItem(state, colonist.tileX, colonist.tileY);
     colonist.carrying = null;
     colonist.path = [];
     colonist.workerState = 'atNest';
@@ -101,7 +101,7 @@ function runCarryingFood(state: GameState, colonist: Colonist, walkable: Walkabl
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
     else colonist.path = [];
   }
 }
@@ -140,7 +140,7 @@ function runCarryingWall(state: GameState, colonist: Colonist, walkable: Walkabl
     if (colonist.path.length === 0) { colonist.dropTarget = null; return; } // became unreachable — pick a new site next tick
   }
   const next = colonist.path.shift()!;
-  if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+  if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
   else colonist.path = [];
 }
 
@@ -156,7 +156,7 @@ function runReturningToNest(state: GameState, colonist: Colonist, now: number, w
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y)) startColonistStep(state, colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
     else colonist.path = [];
   }
 }

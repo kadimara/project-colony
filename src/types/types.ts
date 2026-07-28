@@ -181,6 +181,9 @@ export interface GameState {
   foodItems: FoodItem[];
   enemies: Enemy[];
   colonists: Colonist[];
+  colonistGrid: Map<string, Set<Colonist>>;
+  enemyGrid: Map<string, Set<Enemy>>;
+  foodGrid: Map<string, FoodItem>;
   nest: Nest;
   player: Player;
   scentTrail: Map<string, number>;
