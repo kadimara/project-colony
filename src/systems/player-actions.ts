@@ -22,7 +22,10 @@ import { updateHud } from '../ui/hud';
 export function tryPlayerStep(state: GameState, nx: number, ny: number, dir: Dir, walkable: Walkable): boolean {
   const { player } = state;
   if (walkable(nx, ny)) {
-    player.moveDur = CASTES[player.caste!].moveDur;
+    // hauling something as a worker slows you to a digging scout's pace
+    player.moveDur = player.caste === 'worker' && player.carryingType
+      ? SCOUT_DIG_MOVE_DUR
+      : CASTES[player.caste!].moveDur;
     startStep(player, nx, ny, dir);
     return true;
   }

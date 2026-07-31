@@ -7,37 +7,42 @@ export const SPAWN_X = Math.floor(MAP_W / 2);
 export const SPAWN_Y = Math.floor(MAP_H / 2);
 export const INITIAL_SEED = 393845991;
 
+// all three castes share one base move speed (worker's) so no caste is
+// simply faster than another outside of situational modifiers (a scout
+// digging, or a worker hauling something — see SCOUT_DIG_MOVE_DUR)
+export const BASE_MOVE_DUR = 240;
+
 export const CASTES: Record<CasteKey, CasteDef> = {
   worker: {
     name: 'Worker',
     color: '#d99a3f',
     edge: '#8f5f1f',
-    moveDur: 240,
+    moveDur: BASE_MOVE_DUR,
     inset: 3,
   },
   soldier: {
     name: 'Soldier',
     color: '#b23a3a',
     edge: '#6e2020',
-    moveDur: 260,
+    moveDur: BASE_MOVE_DUR,
     inset: 1,
   },
   scout: {
     name: 'Scout',
     color: '#3fae9e',
     edge: '#1f6b5f',
-    moveDur: 190,
+    moveDur: BASE_MOVE_DUR,
     inset: 3,
   },
 };
 
-// each zoom level uses a clean integer CSS scale so tiles stay crisp
-// vpw * TILE * scale = displayed px width (target: 1024×1024)
+// vpw × vph tiles visible at each zoom level — kept square (vpw === vph) so
+// the on-screen canvas is always a square that can be fit to the viewport
 export const ZOOM_LEVELS: ZoomLevel[] = [
-  { vpw: 16, vph: 16, scale: 4 }, // zoomed in   — 1024×1024px
-  { vpw: 21, vph: 21, scale: 3 }, // default     — 1008×1008px
-  { vpw: 32, vph: 32, scale: 2 }, // zoomed out  — 1024×1024px
-  { vpw: 64, vph: 64, scale: 1 }, // far          — 1024×1024px
+  { vpw: 16, vph: 16 }, // zoomed in
+  { vpw: 21, vph: 21 }, // default
+  { vpw: 32, vph: 32 }, // zoomed out
+  { vpw: 64, vph: 64 }, // far
 ];
 export const DEFAULT_ZOOM_INDEX = 1;
 
@@ -86,10 +91,12 @@ export const COLONIST_MAX_HP: Record<CasteKey, number> = {
   soldier: 16,
   scout: 8,
 };
+// colonist AI shares one base move speed too, using the worker's prior value
+export const COLONIST_BASE_MOVE_DUR = 260;
 export const COLONIST_MOVE_DUR: Record<CasteKey, number> = {
-  worker: 260,
-  soldier: 280,
-  scout: 200,
+  worker: COLONIST_BASE_MOVE_DUR,
+  soldier: COLONIST_BASE_MOVE_DUR,
+  scout: COLONIST_BASE_MOVE_DUR,
 };
 export const COLONIST_ATK_DAMAGE = 3;
 export const COLONIST_ATK_COOLDOWN = 700;

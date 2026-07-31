@@ -11,7 +11,7 @@ function Colony() {
     <div className="stage">
       <div className="canvas-stage">
         <div className="viewport-wrap">
-          <canvas id="game" width={272} height={192} style={{ width: '816px', height: '576px' }} />
+          <canvas id="game" width={272} height={192} />
         </div>
 
         <div className="statusbar">

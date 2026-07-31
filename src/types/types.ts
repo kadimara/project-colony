@@ -33,7 +33,6 @@ export interface CasteDef {
 export interface ZoomLevel {
   vpw: number;
   vph: number;
-  scale: number;
 }
 
 // common movement/animation fields shared by the player, enemies, and colonists

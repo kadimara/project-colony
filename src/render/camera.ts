@@ -11,9 +11,22 @@ export function applyZoom(state: GameState, index: number): void {
   const { canvas, ctx } = state.refs;
   canvas.width = state.VP_W * TILE;
   canvas.height = state.VP_H * TILE;
-  canvas.style.width = (state.VP_W * TILE * lvl.scale) + 'px';
-  canvas.style.height = (state.VP_H * TILE * lvl.scale) + 'px';
   ctx.imageSmoothingEnabled = false;
+  fitCanvasDisplaySize(state);
+}
+
+// the canvas is always square (every zoom level uses vpw === vph), so the
+// on-screen size is just the largest square that fits inside .canvas-stage
+// — that box is what flexbox leaves over after the statusbar/legend/hint,
+// so this keeps the whole canvas on screen at any window size
+export function fitCanvasDisplaySize(state: GameState): void {
+  const { canvas } = state.refs;
+  const stage = canvas.parentElement?.parentElement;
+  if (!stage) return;
+  const side = Math.floor(Math.min(stage.clientWidth, stage.clientHeight));
+  if (side <= 0) return;
+  canvas.style.width = side + 'px';
+  canvas.style.height = side + 'px';
 }
 
 export function getClampedCamX(state: GameState): number {

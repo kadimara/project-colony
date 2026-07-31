@@ -14,7 +14,10 @@
 // deliberately not autonomous foragers — they only ever act on a scent
 // trail, food they can see, the nearest wall material, or an alarm.
 import type { Colonist, GameState, HudRefs } from '../types/types';
-import { COLONIST_FORAGE_RADIUS, SOLDIER_ALERT_SCENT_RADIUS, WORKER_FRONTIER_SEARCH_RADIUS } from '../constants';
+import {
+  COLONIST_FORAGE_RADIUS, COLONIST_MOVE_DUR, SCOUT_DIG_MOVE_DUR, SOLDIER_ALERT_SCENT_RADIUS,
+  WORKER_FRONTIER_SEARCH_RADIUS,
+} from '../constants';
 import {
   claimedForageTargets, dropCarried, effectiveNestFoodRadius, findFrontierDropSite, foodAt, isWall,
   nearestAlarmSource, nearestFoodTo, nearestFoodViaTrail, nearestWallToNest, nestDistance, placeFoodNear,
@@ -273,5 +276,7 @@ const workerTree: BTNode<WorkerCtx> = sequence(
 );
 
 export function updateWorker(state: GameState, _hud: HudRefs, colonist: Colonist, now: number, walkable: Walkable): void {
+  // hauling something slows a worker to a digging scout's pace
+  colonist.moveDur = colonist.carrying ? SCOUT_DIG_MOVE_DUR : COLONIST_MOVE_DUR.worker;
   workerTree({ state, colonist, now, walkable });
 }

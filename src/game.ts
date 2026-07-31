@@ -7,7 +7,7 @@ import {
   createGameState, foodAt, isNestAt, obstacleAt, pruneScentTrail, regenerateWorld, walkable as stateWalkable,
 } from './state/state';
 import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './entities/entities';
-import { applyZoom, screenToTile } from './render/camera';
+import { applyZoom, fitCanvasDisplaySize, screenToTile } from './render/camera';
 import { bfsToAdjacent, isAdjacent } from './systems/pathfinding';
 import {
   applyCaste, attemptSoldierAttack, computeClickPath, onPlayerArrived, tryMove, tryPlaceAt, tryPlayerStep,
@@ -50,6 +50,13 @@ export function initColonyGame(): void {
   worldCanvas.style.height = (worldCanvas.height * 2) + 'px';
 
   applyZoom(state, DEFAULT_ZOOM_INDEX);
+
+  // keep the canvas the largest square that fits on screen, no matter how
+  // the window is resized or the surrounding HUD text reflows
+  const canvasStage = canvas.parentElement?.parentElement;
+  if (canvasStage) {
+    new ResizeObserver(() => fitCanvasDisplaySize(state)).observe(canvasStage);
+  }
 
   const walkableFn = (x: number, y: number) => stateWalkable(state, x, y);
 

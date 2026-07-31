@@ -396,17 +396,23 @@ export function placeFoodNear(
   tx: number,
   ty: number,
 ): boolean {
-  const freeAt = (x: number, y: number) =>
+  // the origin tile is where the dropping actor itself is standing, so its
+  // own occupancy there doesn't make it "taken" — only ring tiles need the
+  // colonist/player occupancy check, otherwise dropping at (tx,ty) always
+  // fails (the actor is always standing there) and pushes the item onto a
+  // ring tile instead, which for a worker unloading near the nest can land
+  // just outside the nest's food radius and get picked back up next tick
+  const freeAt = (x: number, y: number, isOrigin: boolean) =>
     terrainWalkable(state, x, y) &&
     !isWall(state, x, y) &&
     !foodAt(state, x, y) &&
     !isEnemyAt(state, x, y) &&
     !isNestAt(state, x, y) &&
-    !isColonistAt(state, x, y) &&
-    !isPlayerAt(state, x, y);
+    (isOrigin || !isColonistAt(state, x, y)) &&
+    (isOrigin || !isPlayerAt(state, x, y));
   let dropX = tx,
     dropY = ty;
-  if (!freeAt(dropX, dropY)) {
+  if (!freeAt(dropX, dropY, true)) {
     const ring = [
       [1, 0],
       [-1, 0],
@@ -419,7 +425,7 @@ export function placeFoodNear(
     ];
     let placed = false;
     for (const [dx, dy] of ring) {
-      if (freeAt(tx + dx, ty + dy)) {
+      if (freeAt(tx + dx, ty + dy, false)) {
         dropX = tx + dx;
         dropY = ty + dy;
         placed = true;

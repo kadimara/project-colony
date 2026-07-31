@@ -18,15 +18,18 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     display: flex;
     justify-content: center;
-    min-height: 100vh;
+    height: 100%;
   }
   .stage {
-    padding: 32px 16px 48px;
+    padding: 16px 16px 24px;
     display: flex;
     flex-direction: column;
     align-items: center;
     max-width: 1100px;
     width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    box-sizing: border-box;
   }
   .title {
     font-size: 20px;
@@ -42,13 +45,27 @@
     margin: 0 0 24px;
     text-align: center;
   }
-  .canvas-stage { position: relative; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px var(--border); }
+  .canvas-stage {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px var(--border);
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .viewport-wrap { background: #000; overflow: hidden; line-height: 0; }
   canvas#game {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     display: block;
     cursor: pointer;
+    max-width: 100%;
+    max-height: 100%;
   }
   .statusbar {
     position: absolute;
@@ -68,7 +85,8 @@
   .stat-label { color: var(--text-dim); font-size: 10px; letter-spacing: 0.3px; text-transform: uppercase; }
   .stat-value { color: var(--text); font-size: 12px; font-weight: 600; }
   .legend {
-    margin-top: 14px;
+    margin-top: 10px;
+    flex: 0 0 auto;
     display: flex;
     gap: 18px;
     font-size: 12px;
@@ -79,12 +97,17 @@
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; border: 1px solid rgba(255,255,255,0.15); }
   .hint {
-    margin-top: 16px;
+    margin-top: 8px;
+    flex: 0 0 auto;
     font-size: 12px;
     color: var(--text-dim);
     text-align: center;
-    line-height: 1.9;
+    line-height: 1.6;
     max-width: 1024px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
   .key {
     display: inline-block;
