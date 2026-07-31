@@ -8,9 +8,12 @@ export type CasteKey = 'worker' | 'soldier' | 'scout';
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
 export type ScentType = 'food' | 'alarm';
+export type SoldierState =
+  | 'patrolling'
+  | 'followingAlertScent'
+  | 'attacking'
+  | 'returningToNest';
 export type ScoutState = 'scouting' | 'returningToNest';
-export type WorkerState = 'atNest' | 'followingScent' | 'carryingFood' | 'carryingWall' | 'returningToNest';
-export type SoldierState = 'patrolling' | 'followingAlertScent' | 'attacking' | 'returningToNest';
 
 export interface Point {
   x: number;
@@ -59,7 +62,7 @@ export interface Player extends Actor {
   carryingType: CarryType | null;
   pendingAction: PendingAction | null;
   scentActive: boolean;
-  scentOrigin: Point | null;
+  scentOrigins: Point[];
   scentType: ScentType | null;
   attackTarget: Enemy | null;
   lastAttack: number;
@@ -90,13 +93,13 @@ export interface Colonist extends Actor {
   hp: number;
   maxHp: number;
   carrying: CarryType | null;
-  workerState: WorkerState;
-  scoutState: ScoutState;
   soldierState: SoldierState;
+  scoutState: ScoutState;
   dropTarget: Point | null;
   forageTarget: FoodItem | null;
-  carryOrigin: 'atNest' | 'followingScent' | null;
+  carryOrigin: 'atNest' | 'followingScent' | 'helpingSoldier' | null;
   alertTarget: Point | null;
+  tunnelTarget: Point | null;
   aggroTarget: Enemy | null;
   nextWanderAt: number;
   nextRepathAt: number;
@@ -106,7 +109,7 @@ export interface Colonist extends Actor {
   attacked: boolean;
   exploreTarget: Point | null;
   scentActive: boolean;
-  scentOrigin: Point | null;
+  scentOrigins: Point[];
   scentType: ScentType | null;
   digTile: Point | null;
 }
@@ -178,13 +181,14 @@ export interface GameState {
   rng: Rng;
   map: number[][];
   wallSet: Set<string>;
+  unreachableWalls: Set<string>;
   foodItems: FoodItem[];
   enemies: Enemy[];
   colonists: Colonist[];
   nest: Nest;
   player: Player;
   scentTrail: Map<string, number>;
-  scentTrailSource: Map<string, Point>;
+  scentTrailSource: Map<string, Point[]>;
   scentTrailType: Map<string, ScentType>;
   floatingTexts: FloatingText[];
 
