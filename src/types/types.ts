@@ -63,6 +63,7 @@ export interface Player extends Actor {
   scentActive: boolean;
   scentOrigins: Point[];
   scentType: ScentType | null;
+  attacked: boolean;
   attackTarget: Enemy | null;
   lastAttack: number;
   hp: number;

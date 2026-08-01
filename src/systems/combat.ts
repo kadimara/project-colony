@@ -92,5 +92,7 @@ export function damagePlayer(state: GameState, hud: HudRefs, amount: number, now
     dropFoodOnDeath(state, player.tileX, player.tileY);
     showToast(hud, 'You were defeated — respawning');
     respawnPlayer(state, hud, now);
+    return;
   }
+  player.attacked = true;
 }

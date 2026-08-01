@@ -10,8 +10,8 @@ import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './ent
 import { applyZoom, fitCanvasDisplaySize, screenToTile } from './render/camera';
 import { bfsToAdjacent, isAdjacent } from './systems/pathfinding';
 import {
-  applyCaste, attemptSoldierAttack, computeClickPath, onPlayerArrived, tryMove, tryPlaceAt, tryPlayerStep,
-  trySelectPickup,
+  applyCaste, attemptSoldierAttack, computeClickPath, handlePlayerAttacked, onPlayerArrived, tryMove, tryPlaceAt,
+  tryPlayerStep, trySelectPickup,
 } from './systems/player-actions';
 import { heldDir, setupPlayerInput } from './input/player-input';
 import { startNestSpawn, updateColonist, updateEnemy, updateNest } from './systems/ai';
@@ -159,6 +159,7 @@ export function initColonyGame(): void {
   function tick(now: number): void {
     const { player } = state;
     if (player.caste) {
+      handlePlayerAttacked(state, now);
       if (player.moving) {
         updateActorAnimation(player, now);
         if (!player.moving) onPlayerArrived(state, hud, now);

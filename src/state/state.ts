@@ -355,6 +355,7 @@ export function nearestFoodViaTrail(
   x: number,
   y: number,
   radius: number,
+  exclude?: Set<string>,
 ): FoodItem | null {
   let best: FoodItem | null = null,
     bestDist = Infinity;
@@ -365,6 +366,7 @@ export function nearestFoodViaTrail(
     if (d > radius || d >= bestDist) continue;
     for (const origin of state.scentTrailSource.get(key) ?? []) {
       if (!foodAt(state, origin.x, origin.y)) continue;
+      if (exclude && exclude.has(origin.x + ',' + origin.y)) continue;
       best = origin;
       bestDist = d;
     }
@@ -634,6 +636,7 @@ export function regenerateWorld(
   player.scentActive = false;
   player.scentOrigins = [];
   player.scentType = null;
+  player.attacked = false;
   player.moving = false;
   player.tileX = SPAWN_X;
   player.tileY = SPAWN_Y;
@@ -692,6 +695,7 @@ export function createGameState(
       scentActive: false,
       scentOrigins: [],
       scentType: null,
+      attacked: false,
       attackTarget: null,
       lastAttack: 0,
       hp: PLAYER_MAX_HP,

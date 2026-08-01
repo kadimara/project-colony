@@ -7,7 +7,7 @@ import {
 } from '../constants';
 import {
   foodAt, isColonistAt, isEnemyAt, isNestAt, isWall, scoutCost, setWall, spawnFloatingText, terrainWalkable,
-  updateScent,
+  triggerAlarm, updateScent,
 } from '../state/state';
 import { startStep } from '../entities/entities';
 import { bfsToAdjacent, findPath, findWeightedPath, isAdjacent, type Walkable } from './pathfinding';
@@ -89,7 +89,8 @@ export function applyCaste(state: GameState, hud: HudRefs, casteKey: CasteKey, r
     player.tileX = SPAWN_X; player.tileY = SPAWN_Y;
     player.px = SPAWN_X * TILE; player.py = SPAWN_Y * TILE;
   }
-  player.scentActive = false; player.scentOrigins = [];
+  player.scentActive = false; player.scentOrigins = []; player.scentType = null;
+  player.attacked = false;
   updateHud(state, hud);
 }
 
@@ -139,6 +140,20 @@ export function tryPlaceAt(state: GameState, hud: HudRefs, x: number, y: number,
   if (path.length) { player.pendingAction = { type: 'place', x, y }; player.path = path; }
 }
 
+// consumes the attack interrupt for a worker/scout player: lays an alarm
+// trail immediately (the same tick as the hit, rather than waiting for the
+// next tile arrival) and cancels any pending move target, mirroring
+// handleAttackFlag in worker-ai.ts / scout-ai.ts. A soldier player shrugs it
+// off — soldiers are meant to stand and fight, not flee toward the nest.
+export function handlePlayerAttacked(state: GameState, now: number): void {
+  const { player } = state;
+  if (!player.attacked) return;
+  player.attacked = false;
+  if (player.caste !== 'worker' && player.caste !== 'scout') return;
+  player.pendingAction = null;
+  triggerAlarm(state, player, now);
+}
+
 // ---- soldier: attack an enemy ----
 export function attemptSoldierAttack(state: GameState, hud: HudRefs, now: number): void {
   const { player } = state;
@@ -181,5 +196,11 @@ export function onPlayerArrived(state: GameState, hud: HudRefs, now: number): vo
     updateScent(state, player, now);
     if (player.scentActive && !wasActive) spawnFloatingText(state, player, 'found something!', '#9be89b');
     if (player.scentActive) updateHud(state, hud);
+  } else if (player.caste === 'worker' && player.scentActive) {
+    // a worker never auto-triggers a food trail (see updateScent) — the only
+    // way scentActive gets set is triggerAlarm, so this just keeps stamping
+    // and eventually clearing the alarm trail laid by handlePlayerAttacked
+    updateScent(state, player, now);
+    updateHud(state, hud);
   }
 }

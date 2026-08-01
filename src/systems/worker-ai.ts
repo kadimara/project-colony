@@ -15,17 +15,47 @@
 // trail, food they can see, the nearest wall material, or an alarm.
 import type { Colonist, GameState, HudRefs } from '../types/types';
 import {
-  COLONIST_FORAGE_RADIUS, COLONIST_MOVE_DUR, SCOUT_DIG_MOVE_DUR, SOLDIER_ALERT_SCENT_RADIUS,
+  COLONIST_FORAGE_RADIUS,
+  COLONIST_MOVE_DUR,
+  SCOUT_DIG_MOVE_DUR,
+  SOLDIER_ALERT_SCENT_RADIUS,
   WORKER_FRONTIER_SEARCH_RADIUS,
 } from '../constants';
 import {
-  claimedForageTargets, dropCarried, effectiveNestFoodRadius, findFrontierDropSite, foodAt, isWall,
-  nearestAlarmSource, nearestFoodTo, nearestFoodViaTrail, nearestWallToNest, nestDistance, placeFoodNear,
-  randomOpenTileNear, scoutCost, setWall, spawnFloatingText, triggerAlarm, updateScent,
+  claimedForageTargets,
+  dropCarried,
+  effectiveNestFoodRadius,
+  findFrontierDropSite,
+  foodAt,
+  isWall,
+  nearestAlarmSource,
+  nearestFoodTo,
+  nearestFoodViaTrail,
+  nearestWallToNest,
+  nestDistance,
+  placeFoodNear,
+  randomOpenTileNear,
+  scoutCost,
+  setWall,
+  spawnFloatingText,
+  triggerAlarm,
+  updateScent,
 } from '../state/state';
 import { dirBetween, startStep } from '../entities/entities';
-import { bfsToAdjacent, findPath, findWeightedPathToAdjacent, isAdjacent, type Walkable } from './pathfinding';
-import { action, condition, selector, sequence, type BTNode } from './behavior-tree';
+import {
+  bfsToAdjacent,
+  findPath,
+  findWeightedPathToAdjacent,
+  isAdjacent,
+  type Walkable,
+} from './pathfinding';
+import {
+  action,
+  condition,
+  selector,
+  sequence,
+  type BTNode,
+} from './behavior-tree';
 
 interface WorkerCtx {
   state: GameState;
@@ -38,35 +68,52 @@ interface WorkerCtx {
 // several branches when they have no more specific destination in mind
 function stepTowardNest({ state, colonist, walkable }: WorkerCtx): void {
   if (colonist.path.length === 0) {
-    const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
-    const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable) : [];
+    const spot = randomOpenTileNear(
+      state,
+      state.nest.x,
+      state.nest.y,
+      effectiveNestFoodRadius(state) - 1,
+    );
+    const p = spot
+      ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable)
+      : [];
     if (p.length) colonist.path = p;
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     else colonist.path = [];
   }
 }
 
 // consumes the attack interrupt: drop whatever's held, clear errand targets,
 // and lay an alarm trail — always runs first, unconditionally, each tick
-const handleAttackFlag: BTNode<WorkerCtx> = action(({ state, colonist, now }) => {
-  if (!colonist.attacked) return;
-  colonist.attacked = false;
-  dropCarried(state, colonist);
-  colonist.forageTarget = null;
-  colonist.dropTarget = null;
-  colonist.carryOrigin = null;
-  colonist.tunnelTarget = null;
-  colonist.path = [];
-  triggerAlarm(state, colonist, now);
-});
+const handleAttackFlag: BTNode<WorkerCtx> = action(
+  ({ state, colonist, now }) => {
+    if (!colonist.attacked) return;
+    colonist.attacked = false;
+    dropCarried(state, colonist);
+    colonist.forageTarget = null;
+    colonist.dropTarget = null;
+    colonist.carryOrigin = null;
+    colonist.tunnelTarget = null;
+    colonist.path = [];
+    triggerAlarm(state, colonist, now);
+  },
+);
 
 // fleeing home while an alarm trail is active (only ever active after
 // handleAttackFlag triggers it, or while one is still decaying)
 const fleeBranch: BTNode<WorkerCtx> = sequence(
-  condition(({ colonist }) => colonist.scentActive && colonist.scentType === 'alarm'),
+  condition(
+    ({ colonist }) => colonist.scentActive && colonist.scentType === 'alarm',
+  ),
   action((ctx) => {
     updateScent(ctx.state, ctx.colonist, ctx.now);
     if (!ctx.colonist.scentActive) return; // decayed/arrived — next tick falls through to atNest
@@ -81,9 +128,25 @@ const carryingWallBranch: BTNode<WorkerCtx> = sequence(
   condition(({ colonist }) => colonist.carrying === 'obstacle'),
   action(({ state, colonist, walkable }) => {
     if (!colonist.dropTarget) {
-      colonist.dropTarget = findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS)
-        ?? findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS * 2)
-        ?? findFrontierDropSite(state, colonist.tileX, colonist.tileY, WORKER_FRONTIER_SEARCH_RADIUS * 4);
+      colonist.dropTarget =
+        findFrontierDropSite(
+          state,
+          colonist.tileX,
+          colonist.tileY,
+          WORKER_FRONTIER_SEARCH_RADIUS,
+        ) ??
+        findFrontierDropSite(
+          state,
+          colonist.tileX,
+          colonist.tileY,
+          WORKER_FRONTIER_SEARCH_RADIUS * 2,
+        ) ??
+        findFrontierDropSite(
+          state,
+          colonist.tileX,
+          colonist.tileY,
+          WORKER_FRONTIER_SEARCH_RADIUS * 4,
+        );
       colonist.path = [];
       if (!colonist.dropTarget) return; // nothing qualified this tick — try again next tick
     }
@@ -101,7 +164,11 @@ const carryingWallBranch: BTNode<WorkerCtx> = sequence(
       colonist.carrying = null;
       colonist.dropTarget = null;
       colonist.path = [];
-      if (colonist.carryOrigin === 'followingScent' && colonist.forageTarget && foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)) {
+      if (
+        colonist.carryOrigin === 'followingScent' &&
+        colonist.forageTarget &&
+        foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)
+      ) {
         // leave forageTarget set — followingScentBranch resumes it next tick
       } else {
         colonist.forageTarget = null;
@@ -110,11 +177,26 @@ const carryingWallBranch: BTNode<WorkerCtx> = sequence(
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, d.x, d.y, walkable);
-      if (colonist.path.length === 0) { colonist.dropTarget = null; return; } // became unreachable — pick a new site next tick
+      colonist.path = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        d.x,
+        d.y,
+        walkable,
+      );
+      if (colonist.path.length === 0) {
+        colonist.dropTarget = null;
+        return;
+      } // became unreachable — pick a new site next tick
     }
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     else colonist.path = [];
   }),
 );
@@ -124,7 +206,9 @@ const carryingFoodBranch: BTNode<WorkerCtx> = sequence(
   condition(({ colonist }) => colonist.carrying === 'food'),
   action((ctx) => {
     const { state, colonist } = ctx;
-    const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= effectiveNestFoodRadius(state);
+    const nearNest =
+      nestDistance(state, colonist.tileX, colonist.tileY) <=
+      effectiveNestFoodRadius(state);
     if (nearNest) {
       placeFoodNear(state, colonist.tileX, colonist.tileY);
       colonist.carrying = null;
@@ -132,14 +216,28 @@ const carryingFoodBranch: BTNode<WorkerCtx> = sequence(
       return;
     }
     if (colonist.path.length === 0) {
-      const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
-      const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, ctx.walkable) : [];
+      const spot = randomOpenTileNear(
+        state,
+        state.nest.x,
+        state.nest.y,
+        effectiveNestFoodRadius(state) - 1,
+      );
+      const p = spot
+        ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, ctx.walkable)
+        : [];
       // no path home found yet — keep carrying and retry next tick rather than losing the food
-      if (p.length) colonist.path = p; else return;
+      if (p.length) colonist.path = p;
+      else return;
     }
     if (colonist.path.length) {
       const next = colonist.path.shift()!;
-      if (ctx.walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      if (ctx.walkable(next.x, next.y))
+        startStep(
+          colonist,
+          next.x,
+          next.y,
+          dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+        );
       else colonist.path = [];
     }
   }),
@@ -152,15 +250,29 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
   action(({ state, colonist, walkable }) => {
     const f = colonist.forageTarget!;
     if (isAdjacent(colonist.tileX, colonist.tileY, f.x, f.y)) {
-      const idx = state.foodItems.findIndex((fi) => fi.x === f.x && fi.y === f.y);
-      if (idx !== -1) { state.foodItems.splice(idx, 1); colonist.carrying = 'food'; }
+      const idx = state.foodItems.findIndex(
+        (fi) => fi.x === f.x && fi.y === f.y,
+      );
+      if (idx !== -1) {
+        state.foodItems.splice(idx, 1);
+        colonist.carrying = 'food';
+      }
       colonist.forageTarget = null;
       colonist.path = [];
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = findWeightedPathToAdjacent(colonist.tileX, colonist.tileY, f.x, f.y, (x, y) => scoutCost(state, x, y));
-      if (colonist.path.length === 0) { colonist.forageTarget = null; return; }
+      colonist.path = findWeightedPathToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        f.x,
+        f.y,
+        (x, y) => scoutCost(state, x, y),
+      );
+      if (colonist.path.length === 0) {
+        colonist.forageTarget = null;
+        return;
+      }
     }
     const next = colonist.path[0];
     if (isWall(state, next.x, next.y)) {
@@ -173,7 +285,12 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
     }
     if (walkable(next.x, next.y)) {
       colonist.path.shift();
-      startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     } else {
       colonist.path = []; // occupied/blocked since planning — force a replan next tick
     }
@@ -190,15 +307,31 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
   condition(({ colonist }) => colonist.tunnelTarget !== null),
   action(({ state, colonist, walkable }) => {
     const t = colonist.tunnelTarget!;
-    if (isAdjacent(colonist.tileX, colonist.tileY, t.x, t.y)
-      || !nearestAlarmSource(state, colonist.tileX, colonist.tileY, SOLDIER_ALERT_SCENT_RADIUS)) {
+    if (
+      isAdjacent(colonist.tileX, colonist.tileY, t.x, t.y) ||
+      !nearestAlarmSource(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        SOLDIER_ALERT_SCENT_RADIUS,
+      )
+    ) {
       colonist.tunnelTarget = null;
       colonist.path = [];
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = findWeightedPathToAdjacent(colonist.tileX, colonist.tileY, t.x, t.y, (x, y) => scoutCost(state, x, y));
-      if (colonist.path.length === 0) { colonist.tunnelTarget = null; return; }
+      colonist.path = findWeightedPathToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        t.x,
+        t.y,
+        (x, y) => scoutCost(state, x, y),
+      );
+      if (colonist.path.length === 0) {
+        colonist.tunnelTarget = null;
+        return;
+      }
     }
     const next = colonist.path[0];
     if (isWall(state, next.x, next.y)) {
@@ -211,7 +344,12 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
     }
     if (walkable(next.x, next.y)) {
       colonist.path.shift();
-      startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     } else {
       colonist.path = [];
     }
@@ -228,16 +366,41 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
 // condition), reached whenever nothing else applies
 const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
   const { state, colonist, walkable } = ctx;
-  const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= effectiveNestFoodRadius(state);
-  if (!nearNest) { stepTowardNest(ctx); return; }
+  const nearNest =
+    nestDistance(state, colonist.tileX, colonist.tileY) <=
+    effectiveNestFoodRadius(state);
+  if (!nearNest) {
+    stepTowardNest(ctx);
+    return;
+  }
 
   const claimed = claimedForageTargets(state, colonist);
 
-  const trailFood = nearestFoodViaTrail(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, claimed);
-  if (trailFood) { colonist.forageTarget = trailFood; return; }
+  const trailFood = nearestFoodViaTrail(
+    state,
+    colonist.tileX,
+    colonist.tileY,
+    COLONIST_FORAGE_RADIUS,
+    claimed,
+  );
+  if (trailFood) {
+    colonist.forageTarget = trailFood;
+    return;
+  }
 
-  const sightFood = nearestFoodTo(state, colonist.tileX, colonist.tileY, COLONIST_FORAGE_RADIUS, true, undefined, claimed);
-  if (sightFood) { colonist.forageTarget = sightFood; return; }
+  const sightFood = nearestFoodTo(
+    state,
+    colonist.tileX,
+    colonist.tileY,
+    COLONIST_FORAGE_RADIUS,
+    true,
+    undefined,
+    claimed,
+  );
+  if (sightFood) {
+    colonist.forageTarget = sightFood;
+    return;
+  }
 
   const wall = nearestWallToNest(state, effectiveNestFoodRadius(state));
   if (wall) {
@@ -250,21 +413,50 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y, walkable);
-      if (colonist.path.length === 0) { state.unreachableWalls.add(wall.x + ',' + wall.y); return; } // no walkable-only approach — stop re-picking this one
+      colonist.path = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        wall.x,
+        wall.y,
+        walkable,
+      );
+      if (colonist.path.length === 0) {
+        state.unreachableWalls.add(wall.x + ',' + wall.y);
+        return;
+      } // no walkable-only approach — stop re-picking this one
     }
     if (colonist.path.length) {
       const next = colonist.path.shift()!;
-      if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      if (walkable(next.x, next.y))
+        startStep(
+          colonist,
+          next.x,
+          next.y,
+          dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+        );
       else colonist.path = [];
     }
     return;
   }
 
   if (!colonist.tunnelTarget) {
-    const alarmSrc = nearestAlarmSource(state, colonist.tileX, colonist.tileY, SOLDIER_ALERT_SCENT_RADIUS);
-    if (alarmSrc && !isAdjacent(colonist.tileX, colonist.tileY, alarmSrc.x, alarmSrc.y)) {
-      const flatRoute = bfsToAdjacent(colonist.tileX, colonist.tileY, alarmSrc.x, alarmSrc.y, walkable);
+    const alarmSrc = nearestAlarmSource(
+      state,
+      colonist.tileX,
+      colonist.tileY,
+      SOLDIER_ALERT_SCENT_RADIUS,
+    );
+    if (
+      alarmSrc &&
+      !isAdjacent(colonist.tileX, colonist.tileY, alarmSrc.x, alarmSrc.y)
+    ) {
+      const flatRoute = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        alarmSrc.x,
+        alarmSrc.y,
+        walkable,
+      );
       if (flatRoute.length === 0) colonist.tunnelTarget = alarmSrc; // no walk-only route — a wall's in the way, commit to tunneling
     }
   }
@@ -272,11 +464,26 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
 
 const workerTree: BTNode<WorkerCtx> = sequence(
   handleAttackFlag,
-  selector(fleeBranch, carryingWallBranch, carryingFoodBranch, followingScentBranch, helpingSoldierBranch, atNestBranch),
+  selector(
+    fleeBranch,
+    carryingWallBranch,
+    carryingFoodBranch,
+    followingScentBranch,
+    helpingSoldierBranch,
+    atNestBranch,
+  ),
 );
 
-export function updateWorker(state: GameState, _hud: HudRefs, colonist: Colonist, now: number, walkable: Walkable): void {
+export function updateWorker(
+  state: GameState,
+  _hud: HudRefs,
+  colonist: Colonist,
+  now: number,
+  walkable: Walkable,
+): void {
   // hauling something slows a worker to a digging scout's pace
-  colonist.moveDur = colonist.carrying ? SCOUT_DIG_MOVE_DUR : COLONIST_MOVE_DUR.worker;
+  colonist.moveDur = colonist.carrying
+    ? SCOUT_DIG_MOVE_DUR
+    : COLONIST_MOVE_DUR.worker;
   workerTree({ state, colonist, now, walkable });
 }
