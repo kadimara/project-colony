@@ -2,22 +2,57 @@
 // listener, and drives the tick/render loop. Behavior itself lives in the
 // other modules — this file only connects them.
 import type { CasteKey, GameRefs } from './types/types';
-import { DEFAULT_ZOOM_INDEX, MAP_H, MAP_W, TILE, WORLD_TILE } from './constants';
 import {
-  createGameState, foodAt, isNestAt, obstacleAt, pruneScentTrail, regenerateWorld, walkable as stateWalkable,
+  DEFAULT_ZOOM_INDEX,
+  MAP_H,
+  MAP_W,
+  TILE,
+  WORLD_TILE,
+} from './constants';
+import {
+  createGameState,
+  foodAt,
+  isNestAt,
+  obstacleAt,
+  pruneScentTrail,
+  regenerateWorld,
+  walkable as stateWalkable,
 } from './state/state';
-import { dirBetween, spawnEnemies, startStep, updateActorAnimation } from './entities/entities';
+import {
+  dirBetween,
+  spawnEnemies,
+  startStep,
+  updateActorAnimation,
+} from './entities/entities';
 import { applyZoom, fitCanvasDisplaySize, screenToTile } from './render/camera';
 import { bfsToAdjacent, isAdjacent } from './systems/pathfinding';
 import {
-  applyCaste, attemptSoldierAttack, computeClickPath, handlePlayerAttacked, onPlayerArrived, tryMove, tryPlaceAt,
-  tryPlayerStep, trySelectPickup,
+  applyCaste,
+  attemptSoldierAttack,
+  computeClickPath,
+  handlePlayerAttacked,
+  onPlayerArrived,
+  tryMove,
+  tryPlaceAt,
+  tryPlayerStep,
+  trySelectPickup,
 } from './systems/player-actions';
 import { heldDir, setupPlayerInput } from './input/player-input';
-import { startNestSpawn, updateColonist, updateEnemy, updateNest } from './systems/ai';
 import {
-  closeCasteOverlay, closeNestOverlay, createHudRefs, enableDragPan, openCasteOverlay,
-  openNestOverlay, setMapOpen, updateHud,
+  startNestSpawn,
+  updateColonist,
+  updateEnemy,
+  updateNest,
+} from './systems/ai';
+import {
+  closeCasteOverlay,
+  closeNestOverlay,
+  createHudRefs,
+  enableDragPan,
+  openCasteOverlay,
+  openNestOverlay,
+  setMapOpen,
+  updateHud,
 } from './ui/hud';
 import { render, renderWorldMap } from './render/render';
 
@@ -30,7 +65,9 @@ export function initColonyGame(): void {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
-  const worldCanvas = document.getElementById('worldmap-canvas') as HTMLCanvasElement;
+  const worldCanvas = document.getElementById(
+    'worldmap-canvas',
+  ) as HTMLCanvasElement;
   const worldCtx = worldCanvas.getContext('2d')!;
   worldCtx.imageSmoothingEnabled = false;
 
@@ -40,14 +77,21 @@ export function initColonyGame(): void {
   const groundAtlasCtx = groundAtlas.getContext('2d')!;
   groundAtlasCtx.imageSmoothingEnabled = false;
 
-  const refs: GameRefs = { canvas, ctx, worldCanvas, worldCtx, groundAtlas, groundAtlasCtx };
+  const refs: GameRefs = {
+    canvas,
+    ctx,
+    worldCanvas,
+    worldCtx,
+    groundAtlas,
+    groundAtlasCtx,
+  };
   const state = createGameState(refs, spawnEnemies);
   const hud = createHudRefs();
 
   worldCanvas.width = MAP_W * WORLD_TILE;
   worldCanvas.height = MAP_H * WORLD_TILE;
-  worldCanvas.style.width = (worldCanvas.width * 2) + 'px';
-  worldCanvas.style.height = (worldCanvas.height * 2) + 'px';
+  worldCanvas.style.width = worldCanvas.width * 2 + 'px';
+  worldCanvas.style.height = worldCanvas.height * 2 + 'px';
 
   applyZoom(state, DEFAULT_ZOOM_INDEX);
 
@@ -67,19 +111,31 @@ export function initColonyGame(): void {
   const openCaste = () => openCasteOverlay(state, hud, selectCaste);
 
   // ---- zoom ----
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    applyZoom(state, state.zoomIndex + (e.deltaY < 0 ? -1 : 1));
-  }, { passive: false });
-  hud.zoomInBtn.addEventListener('click', () => applyZoom(state, state.zoomIndex - 1));
-  hud.zoomOutBtn.addEventListener('click', () => applyZoom(state, state.zoomIndex + 1));
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      applyZoom(state, state.zoomIndex + (e.deltaY < 0 ? -1 : 1));
+    },
+    { passive: false },
+  );
+  hud.zoomInBtn.addEventListener('click', () =>
+    applyZoom(state, state.zoomIndex - 1),
+  );
+  hud.zoomOutBtn.addEventListener('click', () =>
+    applyZoom(state, state.zoomIndex + 1),
+  );
 
   // ---- player movement input ----
   setupPlayerInput(state);
 
   // ---- hover + click on the main canvas ----
-  canvas.addEventListener('mousemove', (e) => { state.hoveredTile = screenToTile(state, e.clientX, e.clientY); });
-  canvas.addEventListener('mouseleave', () => { state.hoveredTile = null; });
+  canvas.addEventListener('mousemove', (e) => {
+    state.hoveredTile = screenToTile(state, e.clientX, e.clientY);
+  });
+  canvas.addEventListener('mouseleave', () => {
+    state.hoveredTile = null;
+  });
 
   canvas.addEventListener('click', (e) => {
     const { player } = state;
@@ -92,15 +148,26 @@ export function initColonyGame(): void {
     }
 
     if (player.caste === 'worker') {
-      if (player.carryingType) { tryPlaceAt(state, hud, x, y, walkableFn); return; }
+      if (player.carryingType) {
+        tryPlaceAt(state, hud, x, y, walkableFn);
+        return;
+      }
       const obs = obstacleAt(state, x, y);
       const food = foodAt(state, x, y);
-      if (obs) { trySelectPickup(state, hud, x, y, 'obstacle', walkableFn); return; }
-      if (food) { trySelectPickup(state, hud, x, y, 'food', walkableFn); return; }
+      if (obs) {
+        trySelectPickup(state, hud, x, y, 'obstacle', walkableFn);
+        return;
+      }
+      if (food) {
+        trySelectPickup(state, hud, x, y, 'food', walkableFn);
+        return;
+      }
     }
 
     if (player.caste === 'soldier') {
-      const enemyHit = state.enemies.find((en) => en.hp > 0 && en.tileX === x && en.tileY === y);
+      const enemyHit = state.enemies.find(
+        (en) => en.hp > 0 && en.tileX === x && en.tileY === y,
+      );
       if (enemyHit) {
         player.attackTarget = enemyHit;
         player.pendingAction = null;
@@ -109,7 +176,11 @@ export function initColonyGame(): void {
     }
 
     const path = computeClickPath(state, x, y, walkableFn);
-    if (path.length) { player.pendingAction = null; player.attackTarget = null; player.path = path; }
+    if (path.length) {
+      player.pendingAction = null;
+      player.attackTarget = null;
+      player.path = path;
+    }
   });
 
   // ---- caste overlay ----
@@ -122,8 +193,12 @@ export function initColonyGame(): void {
 
   // ---- world map ----
   enableDragPan(hud.worldMapScroll);
-  hud.mapToggleBtn.addEventListener('click', () => setMapOpen(state, hud, !state.mapOpen, () => renderWorldMap(state)));
-  hud.worldMapCloseBtn.addEventListener('click', () => setMapOpen(state, hud, false, () => renderWorldMap(state)));
+  hud.mapToggleBtn.addEventListener('click', () =>
+    setMapOpen(state, hud, !state.mapOpen, () => renderWorldMap(state)),
+  );
+  hud.worldMapCloseBtn.addEventListener('click', () =>
+    setMapOpen(state, hud, false, () => renderWorldMap(state)),
+  );
 
   // ---- seed controls ----
   hud.seedInput.value = String(state.seed);
@@ -145,10 +220,12 @@ export function initColonyGame(): void {
 
   // ---- keyboard shortcuts ----
   window.addEventListener('keydown', (e) => {
-    if ((e.key === 'c' || e.key === 'C') && state.player.caste !== null) openCaste();
+    if ((e.key === 'c' || e.key === 'C') && state.player.caste !== null)
+      openCaste();
     if (e.key === '+' || e.key === '=') applyZoom(state, state.zoomIndex - 1);
     if (e.key === '-' || e.key === '_') applyZoom(state, state.zoomIndex + 1);
-    if (e.key === 'm' || e.key === 'M') setMapOpen(state, hud, !state.mapOpen, () => renderWorldMap(state));
+    if (e.key === 'm' || e.key === 'M')
+      setMapOpen(state, hud, !state.mapOpen, () => renderWorldMap(state));
     if (e.key === 'Escape') {
       if (state.player.caste !== null) closeCasteOverlay(hud);
       setMapOpen(state, hud, false, () => renderWorldMap(state));
@@ -166,34 +243,61 @@ export function initColonyGame(): void {
       } else {
         const dir = heldDir();
         if (dir) {
-          player.path = []; player.pendingAction = null; player.attackTarget = null;
+          player.path = [];
+          player.pendingAction = null;
+          player.attackTarget = null;
           tryMove(state, dir, walkableFn);
-        } else if (player.caste === 'soldier' && player.attackTarget && player.attackTarget.hp > 0) {
+        } else if (
+          player.caste === 'soldier' &&
+          player.attackTarget &&
+          player.attackTarget.hp > 0
+        ) {
           const t = player.attackTarget;
           if (isAdjacent(player.tileX, player.tileY, t.tileX, t.tileY)) {
-            player.dir = dirBetween(player.tileX, player.tileY, t.tileX, t.tileY);
+            player.dir = dirBetween(
+              player.tileX,
+              player.tileY,
+              t.tileX,
+              t.tileY,
+            );
             attemptSoldierAttack(state, hud, now);
           } else {
             if (player.path.length === 0) {
-              const p = bfsToAdjacent(player.tileX, player.tileY, t.tileX, t.tileY, walkableFn);
-              if (p.length) player.path = p; else player.attackTarget = null;
+              const p = bfsToAdjacent(
+                player.tileX,
+                player.tileY,
+                t.tileX,
+                t.tileY,
+                walkableFn,
+              );
+              if (p.length) player.path = p;
+              else player.attackTarget = null;
             }
             if (player.path.length) {
               const next = player.path.shift()!;
-              if (walkableFn(next.x, next.y)) startStep(player, next.x, next.y, dirBetween(player.tileX, player.tileY, next.x, next.y));
+              if (walkableFn(next.x, next.y))
+                startStep(
+                  player,
+                  next.x,
+                  next.y,
+                  dirBetween(player.tileX, player.tileY, next.x, next.y),
+                );
               else player.path = [];
             }
           }
         } else if (player.path.length) {
           const next = player.path.shift()!;
           const dir = dirBetween(player.tileX, player.tileY, next.x, next.y);
-          if (!tryPlayerStep(state, next.x, next.y, dir, walkableFn)) player.path = [];
+          if (!tryPlayerStep(state, next.x, next.y, dir, walkableFn))
+            player.path = [];
         }
       }
     }
 
-    for (const enemy of state.enemies) updateEnemy(state, hud, enemy, now, walkableFn);
-    for (const colonist of state.colonists) updateColonist(state, hud, colonist, now, walkableFn);
+    for (const enemy of state.enemies)
+      updateEnemy(state, hud, enemy, now, walkableFn);
+    for (const colonist of state.colonists)
+      updateColonist(state, hud, colonist, now, walkableFn);
     updateNest(state, hud, now);
     pruneScentTrail(state, now);
 

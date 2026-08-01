@@ -3,15 +3,32 @@
 import type { Dir, GameState } from '../types/types';
 
 const keys: Record<string, boolean> = {};
-const MOVE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'];
+const MOVE_KEYS = [
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'w',
+  'a',
+  's',
+  'd',
+  'W',
+  'A',
+  'S',
+  'D',
+];
 
 export function setupPlayerInput(state: GameState): void {
   window.addEventListener('keydown', (e) => {
     if (MOVE_KEYS.includes(e.key)) e.preventDefault();
     keys[e.key.toLowerCase()] = true;
-    state.player.path = []; state.player.pendingAction = null; state.player.attackTarget = null;
+    state.player.path = [];
+    state.player.pendingAction = null;
+    state.player.attackTarget = null;
   });
-  window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+  window.addEventListener('keyup', (e) => {
+    keys[e.key.toLowerCase()] = false;
+  });
 }
 
 export function heldDir(): Dir | null {

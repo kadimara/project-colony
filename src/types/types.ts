@@ -9,10 +9,7 @@ export type Dir = 'up' | 'down' | 'left' | 'right';
 export type CarryType = 'obstacle' | 'food';
 export type ScentType = 'food' | 'alarm';
 export type SoldierState =
-  | 'patrolling'
-  | 'followingAlertScent'
-  | 'attacking'
-  | 'returningToNest';
+  'patrolling' | 'followingAlertScent' | 'attacking' | 'returningToNest';
 export type ScoutState = 'scouting' | 'returningToNest';
 
 export interface Point {
@@ -73,8 +70,7 @@ export interface Player extends Actor {
 }
 
 export type Target =
-  | { kind: 'player'; ref: Player }
-  | { kind: 'colonist'; ref: Colonist };
+  { kind: 'player'; ref: Player } | { kind: 'colonist'; ref: Colonist };
 
 export interface Enemy extends Actor {
   hp: number;

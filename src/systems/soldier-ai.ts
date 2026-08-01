@@ -13,14 +13,37 @@
 // checks.
 import type { Colonist, Enemy, GameState, HudRefs } from '../types/types';
 import {
-  COLONIST_AGGRO_RADIUS, COLONIST_ATK_COOLDOWN, COLONIST_ATK_DAMAGE, COLONIST_REPATH_MS,
-  COLONIST_WANDER_MAX_MS, COLONIST_WANDER_MIN_MS, SOLDIER_ALERT_SCENT_RADIUS, SOLDIER_PATROL_RADIUS,
+  COLONIST_AGGRO_RADIUS,
+  COLONIST_ATK_COOLDOWN,
+  COLONIST_ATK_DAMAGE,
+  COLONIST_REPATH_MS,
+  COLONIST_WANDER_MAX_MS,
+  COLONIST_WANDER_MIN_MS,
+  SOLDIER_ALERT_SCENT_RADIUS,
+  SOLDIER_PATROL_RADIUS,
 } from '../constants';
-import { effectiveNestFoodRadius, nearestAlarmSource, nestDistance, randomOpenTileNear, spawnFloatingText } from '../state/state';
+import {
+  effectiveNestFoodRadius,
+  nearestAlarmSource,
+  nestDistance,
+  randomOpenTileNear,
+  spawnFloatingText,
+} from '../state/state';
 import { dirBetween, startStep } from '../entities/entities';
-import { bfsToAdjacent, findPath, isAdjacent, type Walkable } from './pathfinding';
+import {
+  bfsToAdjacent,
+  findPath,
+  isAdjacent,
+  type Walkable,
+} from './pathfinding';
 import { killEnemy } from './combat';
-import { action, condition, selector, sequence, type BTNode } from './behavior-tree';
+import {
+  action,
+  condition,
+  selector,
+  sequence,
+  type BTNode,
+} from './behavior-tree';
 
 interface SoldierCtx {
   state: GameState;
@@ -30,17 +53,31 @@ interface SoldierCtx {
   walkable: Walkable;
 }
 
-function nearestEnemyTo(state: GameState, x: number, y: number, radius: number): Enemy | null {
-  let best: Enemy | null = null, bestDist = Infinity;
+function nearestEnemyTo(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+): Enemy | null {
+  let best: Enemy | null = null,
+    bestDist = Infinity;
   for (const en of state.enemies) {
     if (en.hp <= 0) continue;
     const d = Math.hypot(en.tileX - x, en.tileY - y);
-    if (d <= radius && d < bestDist) { best = en; bestDist = d; }
+    if (d <= radius && d < bestDist) {
+      best = en;
+      bestDist = d;
+    }
   }
   return best;
 }
 
-function attemptColonistAttack(state: GameState, hud: HudRefs, colonist: Colonist, now: number): void {
+function attemptColonistAttack(
+  state: GameState,
+  hud: HudRefs,
+  colonist: Colonist,
+  now: number,
+): void {
   const t = colonist.aggroTarget;
   if (!t || t.hp <= 0) return;
   if (now - colonist.lastAttack < COLONIST_ATK_COOLDOWN) return;
@@ -48,8 +85,17 @@ function attemptColonistAttack(state: GameState, hud: HudRefs, colonist: Colonis
   colonist.flashUntil = now + 140;
   t.hp -= COLONIST_ATK_DAMAGE;
   t.flashUntil = now + 140;
-  spawnFloatingText(state, { px: t.px, py: t.py }, '-' + COLONIST_ATK_DAMAGE, '#e8a838');
-  if (t.hp <= 0) { t.hp = 0; killEnemy(state, hud, t); colonist.aggroTarget = null; }
+  spawnFloatingText(
+    state,
+    { px: t.px, py: t.py },
+    '-' + COLONIST_ATK_DAMAGE,
+    '#e8a838',
+  );
+  if (t.hp <= 0) {
+    t.hp = 0;
+    killEnemy(state, hud, t);
+    colonist.aggroTarget = null;
+  }
 }
 
 // shared "walk one step toward a random open tile near the nest" — same
@@ -57,13 +103,26 @@ function attemptColonistAttack(state: GameState, hud: HudRefs, colonist: Colonis
 // more specific to do than head home
 function stepTowardNest({ state, colonist, walkable }: SoldierCtx): void {
   if (colonist.path.length === 0) {
-    const spot = randomOpenTileNear(state, state.nest.x, state.nest.y, effectiveNestFoodRadius(state) - 1);
-    const p = spot ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable) : [];
+    const spot = randomOpenTileNear(
+      state,
+      state.nest.x,
+      state.nest.y,
+      effectiveNestFoodRadius(state) - 1,
+    );
+    const p = spot
+      ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable)
+      : [];
     if (p.length) colonist.path = p;
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     else colonist.path = [];
   }
 }
@@ -74,19 +133,40 @@ const attackingBranch: BTNode<SoldierCtx> = sequence(
   condition(({ colonist }) => colonist.aggroTarget !== null),
   action(({ state, hud, colonist, now, walkable }) => {
     const t = colonist.aggroTarget!;
-    if (t.hp <= 0) { colonist.aggroTarget = null; colonist.path = []; return; }
+    if (t.hp <= 0) {
+      colonist.aggroTarget = null;
+      colonist.path = [];
+      return;
+    }
     if (isAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY)) {
-      colonist.dir = dirBetween(colonist.tileX, colonist.tileY, t.tileX, t.tileY);
+      colonist.dir = dirBetween(
+        colonist.tileX,
+        colonist.tileY,
+        t.tileX,
+        t.tileY,
+      );
       attemptColonistAttack(state, hud, colonist, now);
       return;
     }
     if (now >= colonist.nextRepathAt || colonist.path.length === 0) {
-      colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, t.tileX, t.tileY, walkable);
+      colonist.path = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        t.tileX,
+        t.tileY,
+        walkable,
+      );
       colonist.nextRepathAt = now + COLONIST_REPATH_MS;
     }
     if (colonist.path.length) {
       const next = colonist.path.shift()!;
-      if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+      if (walkable(next.x, next.y))
+        startStep(
+          colonist,
+          next.x,
+          next.y,
+          dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+        );
       else colonist.path = [];
     }
   }),
@@ -97,7 +177,12 @@ const attackingBranch: BTNode<SoldierCtx> = sequence(
 const followingAlertScentBranch: BTNode<SoldierCtx> = sequence(
   condition(({ colonist }) => colonist.alertTarget !== null),
   action(({ state, colonist, walkable }) => {
-    const sighted = nearestEnemyTo(state, colonist.tileX, colonist.tileY, COLONIST_AGGRO_RADIUS);
+    const sighted = nearestEnemyTo(
+      state,
+      colonist.tileX,
+      colonist.tileY,
+      COLONIST_AGGRO_RADIUS,
+    );
     if (sighted) {
       colonist.aggroTarget = sighted;
       colonist.alertTarget = null;
@@ -113,11 +198,26 @@ const followingAlertScentBranch: BTNode<SoldierCtx> = sequence(
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = bfsToAdjacent(colonist.tileX, colonist.tileY, target.x, target.y, walkable);
-      if (colonist.path.length === 0) { colonist.alertTarget = null; return; }
+      colonist.path = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        target.x,
+        target.y,
+        walkable,
+      );
+      if (colonist.path.length === 0) {
+        colonist.alertTarget = null;
+        return;
+      }
     }
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     else colonist.path = [];
   }),
 );
@@ -131,34 +231,69 @@ const followingAlertScentBranch: BTNode<SoldierCtx> = sequence(
 const idleBranch: BTNode<SoldierCtx> = action((ctx) => {
   const { state, colonist, now, walkable } = ctx;
 
-  const alarmSrc = nearestAlarmSource(state, colonist.tileX, colonist.tileY, SOLDIER_ALERT_SCENT_RADIUS);
+  const alarmSrc = nearestAlarmSource(
+    state,
+    colonist.tileX,
+    colonist.tileY,
+    SOLDIER_ALERT_SCENT_RADIUS,
+  );
   if (alarmSrc) {
     colonist.alertTarget = alarmSrc;
     colonist.path = [];
     return;
   }
 
-  const nearNest = nestDistance(state, colonist.tileX, colonist.tileY) <= effectiveNestFoodRadius(state);
-  if (!nearNest) { stepTowardNest(ctx); return; }
+  const nearNest =
+    nestDistance(state, colonist.tileX, colonist.tileY) <=
+    effectiveNestFoodRadius(state);
+  if (!nearNest) {
+    stepTowardNest(ctx);
+    return;
+  }
 
   if (now >= colonist.nextWanderAt && colonist.path.length === 0) {
-    const tx = state.nest.x + Math.floor(Math.random() * (SOLDIER_PATROL_RADIUS * 2 + 1)) - SOLDIER_PATROL_RADIUS;
-    const ty = state.nest.y + Math.floor(Math.random() * (SOLDIER_PATROL_RADIUS * 2 + 1)) - SOLDIER_PATROL_RADIUS;
+    const tx =
+      state.nest.x +
+      Math.floor(Math.random() * (SOLDIER_PATROL_RADIUS * 2 + 1)) -
+      SOLDIER_PATROL_RADIUS;
+    const ty =
+      state.nest.y +
+      Math.floor(Math.random() * (SOLDIER_PATROL_RADIUS * 2 + 1)) -
+      SOLDIER_PATROL_RADIUS;
     if (walkable(tx, ty)) {
       const p = findPath(colonist.tileX, colonist.tileY, tx, ty, walkable);
       if (p.length) colonist.path = p;
     }
-    colonist.nextWanderAt = now + COLONIST_WANDER_MIN_MS + Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS);
+    colonist.nextWanderAt =
+      now +
+      COLONIST_WANDER_MIN_MS +
+      Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS);
   }
   if (colonist.path.length) {
     const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) startStep(colonist, next.x, next.y, dirBetween(colonist.tileX, colonist.tileY, next.x, next.y));
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
     else colonist.path = [];
   }
 });
 
-const soldierTree: BTNode<SoldierCtx> = selector(attackingBranch, followingAlertScentBranch, idleBranch);
+const soldierTree: BTNode<SoldierCtx> = selector(
+  attackingBranch,
+  followingAlertScentBranch,
+  idleBranch,
+);
 
-export function updateSoldier(state: GameState, hud: HudRefs, colonist: Colonist, now: number, walkable: Walkable): void {
+export function updateSoldier(
+  state: GameState,
+  hud: HudRefs,
+  colonist: Colonist,
+  now: number,
+  walkable: Walkable,
+): void {
   soldierTree({ state, hud, colonist, now, walkable });
 }
