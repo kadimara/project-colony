@@ -4,8 +4,19 @@
 // callbacks from game.ts so this module never has to import player-actions
 // or ai directly.
 import type { CasteKey, GameState, HudRefs } from '../types/types';
-import { CASTES, CASTE_DESCRIPTIONS, MAX_COLONISTS, NEST_FOOD_COST, WORLD_TILE, NEST_CASTE_DESCRIPTIONS } from '../constants';
-import { countFoodNearNest, effectiveNestFoodRadius, playerInNestRadius } from '../state/state';
+import {
+  CASTES,
+  CASTE_DESCRIPTIONS,
+  MAX_COLONISTS,
+  NEST_FOOD_COST,
+  WORLD_TILE,
+  NEST_CASTE_DESCRIPTIONS,
+} from '../constants';
+import {
+  countFoodNearNest,
+  effectiveNestFoodRadius,
+  playerInNestRadius,
+} from '../state/state';
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -48,7 +59,9 @@ export function createHudRefs(): HudRefs {
 }
 
 export function updateHud(state: GameState, hud: HudRefs): void {
-  hud.statCaste.textContent = state.player.caste ? CASTES[state.player.caste].name : 'none';
+  hud.statCaste.textContent = state.player.caste
+    ? CASTES[state.player.caste].name
+    : 'none';
   hud.statHp.textContent = state.player.hp + '/' + state.player.maxHp;
   hud.statCarry.textContent = state.player.carryingType || 'nothing';
   hud.statTrail.textContent = String(state.scentTrail.size);
@@ -84,7 +97,11 @@ function buildCasteCard(key: CasteKey, description: string): HTMLDivElement {
   return card;
 }
 
-function renderCasteCards(state: GameState, hud: HudRefs, onSelect: (key: CasteKey) => void): void {
+function renderCasteCards(
+  state: GameState,
+  hud: HudRefs,
+  onSelect: (key: CasteKey) => void,
+): void {
   hud.casteRow.innerHTML = '';
   (Object.keys(CASTES) as CasteKey[]).forEach((key) => {
     const card = buildCasteCard(key, CASTE_DESCRIPTIONS[key]);
@@ -97,9 +114,15 @@ function renderCasteCards(state: GameState, hud: HudRefs, onSelect: (key: CasteK
   });
 }
 
-export function openCasteOverlay(state: GameState, hud: HudRefs, onSelect: (key: CasteKey) => void): void {
+export function openCasteOverlay(
+  state: GameState,
+  hud: HudRefs,
+  onSelect: (key: CasteKey) => void,
+): void {
   const switching = state.player.caste !== null;
-  hud.casteHeading.textContent = switching ? 'switch caste' : 'choose your caste';
+  hud.casteHeading.textContent = switching
+    ? 'switch caste'
+    : 'choose your caste';
   hud.casteCancel.style.display = switching ? 'block' : 'none';
   renderCasteCards(state, hud, onSelect);
   hud.casteOverlay.style.display = 'flex';
@@ -109,20 +132,44 @@ export function closeCasteOverlay(hud: HudRefs): void {
   hud.casteOverlay.style.display = 'none';
 }
 
-function renderNestOverlay(state: GameState, hud: HudRefs, onSelect: (key: CasteKey) => boolean): void {
+function renderNestOverlay(
+  state: GameState,
+  hud: HudRefs,
+  onSelect: (key: CasteKey) => boolean,
+): void {
   const available = countFoodNearNest(state);
   const inRadius = playerInNestRadius(state);
   const { nest, colonists } = state;
-  hud.nestStatusEl.textContent = 'Population ' + colonists.length + '/' + MAX_COLONISTS +
-    ' · food within ' + effectiveNestFoodRadius(state) + ' tiles: ' + available +
-    (nest.incubating ? ' · producing a ' + CASTES[nest.pendingCaste!].name.toLowerCase() + '…'
-      : (inRadius ? '' : ' · stand inside the food circle to spawn'));
+  hud.nestStatusEl.textContent =
+    'Population ' +
+    colonists.length +
+    '/' +
+    MAX_COLONISTS +
+    ' · food within ' +
+    effectiveNestFoodRadius(state) +
+    ' tiles: ' +
+    available +
+    (nest.incubating
+      ? ' · producing a ' + CASTES[nest.pendingCaste!].name.toLowerCase() + '…'
+      : inRadius
+        ? ''
+        : ' · stand inside the food circle to spawn');
 
   hud.nestRow.innerHTML = '';
-  const blocked = nest.incubating || colonists.length >= MAX_COLONISTS || available < NEST_FOOD_COST || !inRadius;
+  const blocked =
+    nest.incubating ||
+    colonists.length >= MAX_COLONISTS ||
+    available < NEST_FOOD_COST ||
+    !inRadius;
   (Object.keys(CASTES) as CasteKey[]).forEach((key) => {
-    const card = buildCasteCard(key, NEST_CASTE_DESCRIPTIONS[key] + ' — costs ' + NEST_FOOD_COST + ' food');
-    if (blocked) { card.style.opacity = '0.45'; card.style.cursor = 'default'; }
+    const card = buildCasteCard(
+      key,
+      NEST_CASTE_DESCRIPTIONS[key] + ' — costs ' + NEST_FOOD_COST + ' food',
+    );
+    if (blocked) {
+      card.style.opacity = '0.45';
+      card.style.cursor = 'default';
+    }
     card.addEventListener('click', () => {
       if (blocked) return;
       if (onSelect(key)) hud.nestOverlay.style.display = 'none';
@@ -131,7 +178,11 @@ function renderNestOverlay(state: GameState, hud: HudRefs, onSelect: (key: Caste
   });
 }
 
-export function openNestOverlay(state: GameState, hud: HudRefs, onSelect: (key: CasteKey) => boolean): void {
+export function openNestOverlay(
+  state: GameState,
+  hud: HudRefs,
+  onSelect: (key: CasteKey) => boolean,
+): void {
   renderNestOverlay(state, hud, onSelect);
   hud.nestOverlay.style.display = 'flex';
 }
@@ -140,7 +191,12 @@ export function closeNestOverlay(hud: HudRefs): void {
   hud.nestOverlay.style.display = 'none';
 }
 
-export function setMapOpen(state: GameState, hud: HudRefs, open: boolean, renderWorldMap: () => void): void {
+export function setMapOpen(
+  state: GameState,
+  hud: HudRefs,
+  open: boolean,
+  renderWorldMap: () => void,
+): void {
   state.mapOpen = open;
   hud.worldMapOverlay.style.display = open ? 'flex' : 'none';
   if (open) {
@@ -155,14 +211,23 @@ export function setMapOpen(state: GameState, hud: HudRefs, open: boolean, render
 
 // drag-to-pan support for the world map (in addition to native scrollbars/trackpad/touch)
 export function enableDragPan(el: HTMLElement): void {
-  let isDown = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+  let isDown = false,
+    startX = 0,
+    startY = 0,
+    startLeft = 0,
+    startTop = 0;
   el.addEventListener('mousedown', (e) => {
     isDown = true;
     el.classList.add('dragging');
-    startX = e.pageX; startY = e.pageY;
-    startLeft = el.scrollLeft; startTop = el.scrollTop;
+    startX = e.pageX;
+    startY = e.pageY;
+    startLeft = el.scrollLeft;
+    startTop = el.scrollTop;
   });
-  window.addEventListener('mouseup', () => { isDown = false; el.classList.remove('dragging'); });
+  window.addEventListener('mouseup', () => {
+    isDown = false;
+    el.classList.remove('dragging');
+  });
   window.addEventListener('mousemove', (e) => {
     if (!isDown) return;
     e.preventDefault();

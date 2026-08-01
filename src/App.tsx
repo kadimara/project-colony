@@ -1,7 +1,7 @@
-import Colony from './Colony'
+import Colony from './Colony';
 
 function App() {
-  return <Colony />
+  return <Colony />;
 }
 
-export default App
+export default App;
