@@ -54,8 +54,18 @@ export function setWall(
   const key = x + ',' + y;
   if (solid) {
     state.wallSet.add(key);
+    // flag this wall as worker-diggable if it's within the nest's food
+    // radius, or if it's resealing a tile that still has a live scent trail
+    // on it (the scout tunnel-and-reseal case: a scout digs through, walks
+    // onto the open tile — stamping a scent trail there — then this same
+    // call reseals it on the next step, so the trail and the resealed wall
+    // coincide)
+    if (isNestRadiusWall(state, x, y) || state.scentTrail.has(key)) {
+      state.wallsToDig.add(key);
+    }
   } else {
     state.wallSet.delete(key);
+    state.wallsToDig.delete(key);
     // removing any wall can reopen a route to others that were previously
     // unreachable, so a full clear (rather than tracking exactly which
     // entries it affects) is the simplest correct invalidation
@@ -122,6 +132,24 @@ export function nestDistance(state: GameState, x: number, y: number): number {
 // itself stays the level-0 base value
 export function effectiveNestFoodRadius(state: GameState): number {
   return NEST_FOOD_RADIUS + state.nest.level * NEST_FOOD_RADIUS_PER_LEVEL;
+}
+
+// true if (x,y) lies within the nest's current food-catchment radius — the
+// one place this rule lives, shared by setWall's live wallsToDig check and
+// the worldgen population pass below, so they can't drift apart
+function isNestRadiusWall(state: GameState, x: number, y: number): boolean {
+  return nestDistance(state, x, y) <= effectiveNestFoodRadius(state);
+}
+
+// scans the whole wallSet once and flags every nest-radius wall into
+// wallsToDig — needed because createGameState/regenerateWorld build wallSet
+// directly from worldgen (buildWalls), bypassing setWall entirely, so
+// nothing else would populate wallsToDig for the starting map
+export function populateWallsToDigNearNest(state: GameState): void {
+  for (const key of state.wallSet) {
+    const [x, y] = key.split(',').map(Number);
+    if (isNestRadiusWall(state, x, y)) state.wallsToDig.add(key);
+  }
 }
 
 export function countFoodNearNest(state: GameState): number {
@@ -264,6 +292,10 @@ export function triggerAlarm(
 // soldiers toward a long-gone threat.
 export function pruneScentTrail(state: GameState, now: number): void {
   for (const [key, laidAt] of state.scentTrail) {
+    // pinned: a wall currently sits on this trail tile and still needs
+    // digging (see setWall) — don't let it decay until that wall is cleared,
+    // at which point the key leaves wallsToDig and the pin lifts naturally
+    if (state.wallsToDig.has(key)) continue;
     const lifetime =
       state.scentTrailType.get(key) === 'alarm'
         ? ALARM_SCENT_LIFETIME_MS
@@ -553,78 +585,49 @@ export function findFrontierDropSite(
   return best;
 }
 
-// the single wall tile closest to the nest within radius — an idle worker at
-// the nest should clear this one first rather than whatever happens to be
-// standing next to it, so the nest's surroundings open up from the inside out.
-// Skips anything already flagged unreachable (see setWall) so a wall with no
-// walkable-only approach doesn't get re-picked and stalled on every tick.
-export function nearestWallToNest(
+// nearest wallsToDig entry to (goalX,goalY), by straight-line distance —
+// wallsToDig is a maintained list of every wall a worker might legitimately
+// need to dig (nest-radius walls + resealed walls sitting on a scent trail,
+// see setWall), so goal-directed digging just ranks that existing list
+// instead of flooding the reachable region from scratch on every call. Skips
+// anything already flagged unreachable (see setWall/unreachableWalls).
+export function nearestDiggableWall(
   state: GameState,
-  radius: number,
+  goalX: number,
+  goalY: number,
 ): Point | null {
   let best: Point | null = null,
     bestDist = Infinity;
-  for (let y = state.nest.y - radius; y <= state.nest.y + radius; y++) {
-    for (let x = state.nest.x - radius; x <= state.nest.x + radius; x++) {
-      if (!isWall(state, x, y)) continue;
-      if (state.unreachableWalls.has(x + ',' + y)) continue;
-      const d = nestDistance(state, x, y);
-      if (d < bestDist) {
-        best = { x, y };
-        bestDist = d;
-      }
+  for (const key of state.wallsToDig) {
+    if (state.unreachableWalls.has(key)) continue;
+    const [x, y] = key.split(',').map(Number);
+    const d = Math.hypot(x - goalX, y - goalY);
+    if (d < bestDist) {
+      best = { x, y };
+      bestDist = d;
     }
   }
   return best;
 }
 
-// nearest wall bordering the region currently reachable (via plain walkable
-// BFS flood-fill) from (fromX,fromY), picked by distance to (goalX,goalY) —
-// lets a worker dig through walls one at a time toward a target instead of a
-// weighted pathfinder computing a whole multi-wall route up front: digging
-// the returned wall extends the reachable region, so the next call (or a
-// plain bfsToAdjacent) can get one step closer, or find the next wall to
-// clear. Skips anything already flagged unreachable (see setWall), same as
-// nearestWallToNest.
-export function nearestFrontierWall(
-  state: GameState,
-  fromX: number,
-  fromY: number,
-  goalX: number,
-  goalY: number,
-): Point | null {
-  const key = (x: number, y: number) => x + ',' + y;
-  const visited = new Set<string>([key(fromX, fromY)]);
-  const queue: Point[] = [{ x: fromX, y: fromY }];
-  let head = 0;
-  const dirs = [
-    [0, -1],
-    [0, 1],
-    [-1, 0],
-    [1, 0],
-  ];
+// nearest wallsToDig entry to the nest, ranked by nestDistance (not
+// straight-line distance to an arbitrary point) so nest-clearing still
+// empties the surroundings from the inside out, and bounded to the nest's
+// own food radius since wallsToDig can also hold far-away scent-overlay
+// walls that must never count as nest-clearing work. Skips anything already
+// flagged unreachable (see setWall) so a wall with no walkable-only approach
+// doesn't get re-picked and stalled on every tick.
+export function nearestDiggableWallNearNest(state: GameState): Point | null {
+  const radius = effectiveNestFoodRadius(state);
   let best: Point | null = null,
     bestDist = Infinity;
-  while (head < queue.length) {
-    const cur = queue[head++];
-    for (const [dx, dy] of dirs) {
-      const nx = cur.x + dx,
-        ny = cur.y + dy,
-        k = key(nx, ny);
-      if (visited.has(k)) continue;
-      visited.add(k);
-      if (isWall(state, nx, ny)) {
-        if (state.unreachableWalls.has(k)) continue;
-        const d = Math.hypot(nx - goalX, ny - goalY);
-        if (d < bestDist) {
-          best = { x: nx, y: ny };
-          bestDist = d;
-        }
-        continue;
-      }
-      if (!walkable(state, nx, ny)) continue;
-      queue.push({ x: nx, y: ny });
-    }
+  for (const key of state.wallsToDig) {
+    if (state.unreachableWalls.has(key)) continue;
+    const [x, y] = key.split(',').map(Number);
+    const d = nestDistance(state, x, y);
+    if (d > radius || d >= bestDist) continue;
+    best = { x, y };
+    bestDist = d;
   }
   return best;
 }
@@ -657,6 +660,7 @@ export function regenerateWorld(
 
   state.wallSet = buildWalls(newSeed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
   state.unreachableWalls.clear();
+  state.wallsToDig.clear();
   buildGroundAtlas(state.refs, state.map, state.wallSet);
   state.foodItems.length = 0;
   for (let i = 0; i < INITIAL_FOOD_COUNT; i++) {
@@ -672,6 +676,7 @@ export function regenerateWorld(
   state.nest.incubateStart = 0;
   state.nest.level = 0;
   state.nest.workProgress = 0;
+  populateWallsToDigNearNest(state);
   state.colonists.length = 0;
 
   state.scentTrail.clear();
@@ -714,6 +719,7 @@ export function createGameState(
     map,
     wallSet,
     unreachableWalls: new Set(),
+    wallsToDig: new Set(),
     foodItems: [],
     enemies: [],
     colonists: [],
@@ -766,6 +772,7 @@ export function createGameState(
   };
 
   buildGroundAtlas(refs, map, wallSet);
+  populateWallsToDigNearNest(state);
   for (let i = 0; i < INITIAL_FOOD_COUNT; i++) {
     const s = randomOpenTile(state);
     if (s) state.foodItems.push(s);
