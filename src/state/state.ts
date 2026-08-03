@@ -578,6 +578,57 @@ export function nearestWallToNest(
   return best;
 }
 
+// nearest wall bordering the region currently reachable (via plain walkable
+// BFS flood-fill) from (fromX,fromY), picked by distance to (goalX,goalY) —
+// lets a worker dig through walls one at a time toward a target instead of a
+// weighted pathfinder computing a whole multi-wall route up front: digging
+// the returned wall extends the reachable region, so the next call (or a
+// plain bfsToAdjacent) can get one step closer, or find the next wall to
+// clear. Skips anything already flagged unreachable (see setWall), same as
+// nearestWallToNest.
+export function nearestFrontierWall(
+  state: GameState,
+  fromX: number,
+  fromY: number,
+  goalX: number,
+  goalY: number,
+): Point | null {
+  const key = (x: number, y: number) => x + ',' + y;
+  const visited = new Set<string>([key(fromX, fromY)]);
+  const queue: Point[] = [{ x: fromX, y: fromY }];
+  let head = 0;
+  const dirs = [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+  ];
+  let best: Point | null = null,
+    bestDist = Infinity;
+  while (head < queue.length) {
+    const cur = queue[head++];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx,
+        ny = cur.y + dy,
+        k = key(nx, ny);
+      if (visited.has(k)) continue;
+      visited.add(k);
+      if (isWall(state, nx, ny)) {
+        if (state.unreachableWalls.has(k)) continue;
+        const d = Math.hypot(nx - goalX, ny - goalY);
+        if (d < bestDist) {
+          best = { x: nx, y: ny };
+          bestDist = d;
+        }
+        continue;
+      }
+      if (!walkable(state, nx, ny)) continue;
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return best;
+}
+
 export function spawnFloatingText(
   state: GameState,
   entity: { px: number; py: number },

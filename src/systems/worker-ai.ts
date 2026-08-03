@@ -27,25 +27,24 @@ import {
   effectiveNestFoodRadius,
   findFrontierDropSite,
   foodAt,
-  isWall,
   nearestAlarmSource,
   nearestFoodTo,
   nearestFoodViaTrail,
+  nearestFrontierWall,
   nearestWallToNest,
   nestDistance,
   placeFoodNear,
   randomOpenTileNear,
-  scoutCost,
   setWall,
   spawnFloatingText,
   triggerAlarm,
   updateScent,
+  walkable as stateWalkable,
 } from '../state/state';
 import { dirBetween, startStep } from '../entities/entities';
 import {
   bfsToAdjacent,
   findPath,
-  findWeightedPathToAdjacent,
   isAdjacent,
   type Walkable,
 } from './pathfinding';
@@ -262,29 +261,50 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = findWeightedPathToAdjacent(
+      colonist.path = bfsToAdjacent(
         colonist.tileX,
         colonist.tileY,
         f.x,
         f.y,
-        (x, y) => scoutCost(state, x, y),
+        walkable,
+      );
+    }
+    if (colonist.path.length === 0) {
+      // no flat route in — dig toward the target one wall at a time instead
+      // of a weighted pathfinder committing to a whole multi-wall route
+      const wall = nearestFrontierWall(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        f.x,
+        f.y,
+      );
+      if (!wall) {
+        colonist.forageTarget = null;
+        return;
+      }
+      if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
+        setWall(state, wall.x, wall.y, false);
+        colonist.carrying = 'obstacle';
+        colonist.carryOrigin = 'followingScent';
+        colonist.path = [];
+        spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
+        return;
+      }
+      colonist.path = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        wall.x,
+        wall.y,
+        walkable,
       );
       if (colonist.path.length === 0) {
         colonist.forageTarget = null;
         return;
       }
     }
-    const next = colonist.path[0];
-    if (isWall(state, next.x, next.y)) {
-      setWall(state, next.x, next.y, false);
-      colonist.carrying = 'obstacle';
-      colonist.carryOrigin = 'followingScent';
-      colonist.path = [];
-      spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
-      return;
-    }
+    const next = colonist.path.shift()!;
     if (walkable(next.x, next.y)) {
-      colonist.path.shift();
       startStep(
         colonist,
         next.x,
@@ -321,29 +341,48 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
       return;
     }
     if (colonist.path.length === 0) {
-      colonist.path = findWeightedPathToAdjacent(
+      colonist.path = bfsToAdjacent(
         colonist.tileX,
         colonist.tileY,
         t.x,
         t.y,
-        (x, y) => scoutCost(state, x, y),
+        walkable,
+      );
+    }
+    if (colonist.path.length === 0) {
+      const wall = nearestFrontierWall(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        t.x,
+        t.y,
+      );
+      if (!wall) {
+        colonist.tunnelTarget = null;
+        return;
+      }
+      if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
+        setWall(state, wall.x, wall.y, false);
+        colonist.carrying = 'obstacle';
+        colonist.carryOrigin = 'helpingSoldier';
+        colonist.path = [];
+        spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
+        return;
+      }
+      colonist.path = bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        wall.x,
+        wall.y,
+        walkable,
       );
       if (colonist.path.length === 0) {
         colonist.tunnelTarget = null;
         return;
       }
     }
-    const next = colonist.path[0];
-    if (isWall(state, next.x, next.y)) {
-      setWall(state, next.x, next.y, false);
-      colonist.carrying = 'obstacle';
-      colonist.carryOrigin = 'helpingSoldier';
-      colonist.path = [];
-      spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
-      return;
-    }
+    const next = colonist.path.shift()!;
     if (walkable(next.x, next.y)) {
-      colonist.path.shift();
       startStep(
         colonist,
         next.x,
@@ -372,13 +411,20 @@ function nextReachableFood(
     if (!candidate) return null;
     if (
       isAdjacent(colonist.tileX, colonist.tileY, candidate.x, candidate.y) ||
-      findWeightedPathToAdjacent(
+      bfsToAdjacent(
         colonist.tileX,
         colonist.tileY,
         candidate.x,
         candidate.y,
-        (x, y) => scoutCost(state, x, y),
-      ).length > 0
+        (x, y) => stateWalkable(state, x, y),
+      ).length > 0 ||
+      nearestFrontierWall(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        candidate.x,
+        candidate.y,
+      ) !== null
     )
       return candidate;
     exclude.add(candidate.x + ',' + candidate.y);
