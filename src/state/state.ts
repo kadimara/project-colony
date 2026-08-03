@@ -616,20 +616,32 @@ export function nearestDiggableWall(
 // own food radius since wallsToDig can also hold far-away scent-overlay
 // walls that must never count as nest-clearing work. Skips anything already
 // flagged unreachable (see setWall) so a wall with no walkable-only approach
-// doesn't get re-picked and stalled on every tick.
+// doesn't get re-picked and stalled on every tick. Walls still resealed on
+// top of a live scent trail (blocking a known food/alarm route) always win
+// over plain nest-radius walls, even ones closer to the nest, since the
+// trail decays and its route matters more than routine nest upkeep.
 export function nearestDiggableWallNearNest(state: GameState): Point | null {
   const radius = effectiveNestFoodRadius(state);
-  let best: Point | null = null,
-    bestDist = Infinity;
+  let bestTrail: Point | null = null,
+    bestTrailDist = Infinity;
+  let bestPlain: Point | null = null,
+    bestPlainDist = Infinity;
   for (const key of state.wallsToDig) {
     if (state.unreachableWalls.has(key)) continue;
     const [x, y] = key.split(',').map(Number);
     const d = nestDistance(state, x, y);
-    if (d > radius || d >= bestDist) continue;
-    best = { x, y };
-    bestDist = d;
+    if (d > radius) continue;
+    if (state.scentTrail.has(key)) {
+      if (d < bestTrailDist) {
+        bestTrail = { x, y };
+        bestTrailDist = d;
+      }
+    } else if (d < bestPlainDist) {
+      bestPlain = { x, y };
+      bestPlainDist = d;
+    }
   }
-  return best;
+  return bestTrail ?? bestPlain;
 }
 
 export function spawnFloatingText(
