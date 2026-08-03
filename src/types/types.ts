@@ -200,4 +200,5 @@ export interface GameState {
   VP_H: number;
   mapOpen: boolean;
   hoveredTile: Point | null;
+  debugOverlay: boolean;
 }
