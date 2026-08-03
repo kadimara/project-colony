@@ -13,7 +13,7 @@
 // fields fresh every tick instead of tracking a redundant enum. Workers are
 // deliberately not autonomous foragers — they only ever act on a scent
 // trail, food they can see, the nearest wall material, or an alarm.
-import type { Colonist, GameState, HudRefs } from '../types/types';
+import type { Colonist, FoodItem, GameState, HudRefs } from '../types/types';
 import {
   COLONIST_FORAGE_RADIUS,
   COLONIST_MOVE_DUR,
@@ -356,6 +356,35 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
   }),
 );
 
+// repeatedly calls a food-candidate query (nearestFoodViaTrail/nearestFoodTo),
+// skipping any candidate with no path in — including a tunneling one — from
+// the colonist's current tile, until a reachable candidate turns up or the
+// query runs out of candidates to exclude
+function nextReachableFood(
+  state: GameState,
+  colonist: Colonist,
+  find: (exclude: Set<string>) => FoodItem | null,
+  claimed: Set<string>,
+): FoodItem | null {
+  const exclude = new Set(claimed);
+  for (;;) {
+    const candidate = find(exclude);
+    if (!candidate) return null;
+    if (
+      isAdjacent(colonist.tileX, colonist.tileY, candidate.x, candidate.y) ||
+      findWeightedPathToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        candidate.x,
+        candidate.y,
+        (x, y) => scoutCost(state, x, y),
+      ).length > 0
+    )
+      return candidate;
+    exclude.add(candidate.x + ',' + candidate.y);
+  }
+}
+
 // stationed at the nest: pick up a scent trail if one's in range, else food
 // it can see nearby with no trail leading to it — foraging takes priority
 // since food waiting to be fetched matters more than nest upkeep — otherwise
@@ -376,11 +405,23 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
 
   const claimed = claimedForageTargets(state, colonist);
 
-  const trailFood = nearestFoodViaTrail(
+  // nearestFoodViaTrail/nearestFoodTo only judge distance, not reachability,
+  // so a candidate can be walled off from every side by occupied tiles with
+  // no path in or out. Reject those here (same weighted, tunnel-capable
+  // search followingScentBranch uses to actually walk there) and keep
+  // falling back to the next-nearest instead of committing to a target the
+  // worker would just have to drop next tick.
+  const trailFood = nextReachableFood(
     state,
-    colonist.tileX,
-    colonist.tileY,
-    COLONIST_FORAGE_RADIUS,
+    colonist,
+    (exclude) =>
+      nearestFoodViaTrail(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        COLONIST_FORAGE_RADIUS,
+        exclude,
+      ),
     claimed,
   );
   if (trailFood) {
@@ -388,13 +429,19 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
     return;
   }
 
-  const sightFood = nearestFoodTo(
+  const sightFood = nextReachableFood(
     state,
-    colonist.tileX,
-    colonist.tileY,
-    COLONIST_FORAGE_RADIUS,
-    true,
-    undefined,
+    colonist,
+    (exclude) =>
+      nearestFoodTo(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        COLONIST_FORAGE_RADIUS,
+        true,
+        undefined,
+        exclude,
+      ),
     claimed,
   );
   if (sightFood) {
