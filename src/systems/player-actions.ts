@@ -297,6 +297,24 @@ export function onPlayerArrived(
   now: number,
 ): void {
   const { player } = state;
+  // scent must be stamped before the digTile reseal below runs: a scout
+  // standing on a just-dug tile needs state.scentTrail to already have this
+  // tile's key by the time setWall(...,true) reseals it, so setWall can flag
+  // the overlap into wallsToDig (mirrors scout-ai.ts's tree order, where
+  // handleScentUpdate runs before movePathStep's reseal)
+  if (player.caste === 'scout') {
+    const wasActive = player.scentActive;
+    updateScent(state, player, now);
+    if (player.scentActive && !wasActive)
+      spawnFloatingText(state, player, 'found something!', '#9be89b');
+    if (player.scentActive) updateHud(state, hud);
+  } else if (player.caste === 'worker' && player.scentActive) {
+    // a worker never auto-triggers a food trail (see updateScent) — the only
+    // way scentActive gets set is triggerAlarm, so this just keeps stamping
+    // and eventually clearing the alarm trail laid by handlePlayerAttacked
+    updateScent(state, player, now);
+    updateHud(state, hud);
+  }
   // standing on a dug tile means the player is about to move on — put the
   // wall block back down now that they're leaving it
   if (player.digTile) {
@@ -314,18 +332,5 @@ export function onPlayerArrived(
       player.pendingAction = null;
     }
     // otherwise: still mid-walk toward the target, keep pendingAction for the next step
-  }
-  if (player.caste === 'scout') {
-    const wasActive = player.scentActive;
-    updateScent(state, player, now);
-    if (player.scentActive && !wasActive)
-      spawnFloatingText(state, player, 'found something!', '#9be89b');
-    if (player.scentActive) updateHud(state, hud);
-  } else if (player.caste === 'worker' && player.scentActive) {
-    // a worker never auto-triggers a food trail (see updateScent) — the only
-    // way scentActive gets set is triggerAlarm, so this just keeps stamping
-    // and eventually clearing the alarm trail laid by handlePlayerAttacked
-    updateScent(state, player, now);
-    updateHud(state, hud);
   }
 }

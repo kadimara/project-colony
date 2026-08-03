@@ -28,10 +28,10 @@ import {
   findFrontierDropSite,
   foodAt,
   nearestAlarmSource,
+  nearestDiggableWall,
+  nearestDiggableWallNearNest,
   nearestFoodTo,
   nearestFoodViaTrail,
-  nearestFrontierWall,
-  nearestWallToNest,
   nestDistance,
   placeFoodNear,
   randomOpenTileNear,
@@ -246,7 +246,7 @@ const carryingFoodBranch: BTNode<WorkerCtx> = sequence(
 // permanently through any wall tile in the way (unlike a scout's temporary dig)
 const followingScentBranch: BTNode<WorkerCtx> = sequence(
   condition(({ colonist }) => colonist.forageTarget !== null),
-  action(({ state, colonist, walkable }) => {
+  action(({ state, colonist, walkable, now }) => {
     const f = colonist.forageTarget!;
     if (isAdjacent(colonist.tileX, colonist.tileY, f.x, f.y)) {
       const idx = state.foodItems.findIndex(
@@ -270,21 +270,21 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
       );
     }
     if (colonist.path.length === 0) {
-      // no flat route in — dig toward the target one wall at a time instead
-      // of a weighted pathfinder committing to a whole multi-wall route
-      const wall = nearestFrontierWall(
-        state,
-        colonist.tileX,
-        colonist.tileY,
-        f.x,
-        f.y,
-      );
+      // no flat route in — dig toward the target one known wall at a time
+      // instead of a weighted pathfinder committing to a whole multi-wall
+      // route (see wallsToDig in state.ts for how walls get queued)
+      const wall = nearestDiggableWall(state, f.x, f.y);
       if (!wall) {
         colonist.forageTarget = null;
         return;
       }
       if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
         setWall(state, wall.x, wall.y, false);
+        const key = wall.x + ',' + wall.y;
+        // digging can un-pin a scent trail entry that was frozen while this
+        // wall stood (see pruneScentTrail) — refresh its timestamp so it
+        // doesn't get pruned before anyone benefits from the tile opening up
+        if (state.scentTrail.has(key)) state.scentTrail.set(key, now);
         colonist.carrying = 'obstacle';
         colonist.carryOrigin = 'followingScent';
         colonist.path = [];
@@ -325,7 +325,7 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
 // workers stay out of it.
 const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
   condition(({ colonist }) => colonist.tunnelTarget !== null),
-  action(({ state, colonist, walkable }) => {
+  action(({ state, colonist, walkable, now }) => {
     const t = colonist.tunnelTarget!;
     if (
       isAdjacent(colonist.tileX, colonist.tileY, t.x, t.y) ||
@@ -350,19 +350,15 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
       );
     }
     if (colonist.path.length === 0) {
-      const wall = nearestFrontierWall(
-        state,
-        colonist.tileX,
-        colonist.tileY,
-        t.x,
-        t.y,
-      );
+      const wall = nearestDiggableWall(state, t.x, t.y);
       if (!wall) {
         colonist.tunnelTarget = null;
         return;
       }
       if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
         setWall(state, wall.x, wall.y, false);
+        const key = wall.x + ',' + wall.y;
+        if (state.scentTrail.has(key)) state.scentTrail.set(key, now);
         colonist.carrying = 'obstacle';
         colonist.carryOrigin = 'helpingSoldier';
         colonist.path = [];
@@ -396,14 +392,20 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
 );
 
 // repeatedly calls a food-candidate query (nearestFoodViaTrail/nearestFoodTo),
-// skipping any candidate with no path in — including a tunneling one — from
-// the colonist's current tile, until a reachable candidate turns up or the
-// query runs out of candidates to exclude
+// skipping any candidate with no path in — including a tunneling one, when
+// allowDig is set — from the colonist's current tile, until a reachable
+// candidate turns up or the query runs out of candidates to exclude.
+// allowDig should only be true for trail-reported food: bfsToAdjacent never
+// crosses walls, so a trail candidate that requires digging through even one
+// resealed wall would otherwise always get rejected here, even though
+// followingScentBranch can (and is meant to) tunnel through it. Sight-only
+// food (no trail) gets no such benefit of the doubt — see atNestBranch.
 function nextReachableFood(
   state: GameState,
   colonist: Colonist,
   find: (exclude: Set<string>) => FoodItem | null,
   claimed: Set<string>,
+  allowDig: boolean,
 ): FoodItem | null {
   const exclude = new Set(claimed);
   for (;;) {
@@ -418,13 +420,8 @@ function nextReachableFood(
         candidate.y,
         (x, y) => stateWalkable(state, x, y),
       ).length > 0 ||
-      nearestFrontierWall(
-        state,
-        colonist.tileX,
-        colonist.tileY,
-        candidate.x,
-        candidate.y,
-      ) !== null
+      (allowDig &&
+        nearestDiggableWall(state, candidate.x, candidate.y) !== null)
     )
       return candidate;
     exclude.add(candidate.x + ',' + candidate.y);
@@ -440,7 +437,7 @@ function nextReachableFood(
 // reach unaided, otherwise just wait. This is the tree's default branch (no
 // condition), reached whenever nothing else applies
 const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
-  const { state, colonist, walkable } = ctx;
+  const { state, colonist, walkable, now } = ctx;
   const nearNest =
     nestDistance(state, colonist.tileX, colonist.tileY) <=
     effectiveNestFoodRadius(state);
@@ -469,6 +466,7 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
         exclude,
       ),
     claimed,
+    true,
   );
   if (trailFood) {
     colonist.forageTarget = trailFood;
@@ -489,16 +487,19 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
         exclude,
       ),
     claimed,
+    false,
   );
   if (sightFood) {
     colonist.forageTarget = sightFood;
     return;
   }
 
-  const wall = nearestWallToNest(state, effectiveNestFoodRadius(state));
+  const wall = nearestDiggableWallNearNest(state);
   if (wall) {
     if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
       setWall(state, wall.x, wall.y, false);
+      const key = wall.x + ',' + wall.y;
+      if (state.scentTrail.has(key)) state.scentTrail.set(key, now);
       colonist.carrying = 'obstacle';
       colonist.carryOrigin = 'atNest';
       colonist.path = [];
