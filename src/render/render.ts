@@ -283,7 +283,6 @@ export function render(state: GameState, now: number): void {
     const minTY = Math.max(0, Math.floor(camY / TILE));
     const maxTY = Math.min(MAP_H - 1, Math.ceil((camY + canvas.height) / TILE));
 
-    ctx.lineWidth = 1;
     for (let ty = minTY; ty <= maxTY; ty++) {
       for (let tx = minTX; tx <= maxTX; tx++) {
         if (!isFrontierDropCandidate(state, tx, ty)) continue;
@@ -291,8 +290,6 @@ export function render(state: GameState, now: number): void {
           sy = ty * TILE - camY;
         ctx.fillStyle = 'rgba(90,170,220,0.35)';
         ctx.fillRect(sx, sy, TILE, TILE);
-        ctx.strokeStyle = 'rgba(90,170,220,0.85)';
-        ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
       }
     }
 
@@ -304,8 +301,6 @@ export function render(state: GameState, now: number): void {
         continue;
       ctx.fillStyle = 'rgba(224,120,60,0.45)';
       ctx.fillRect(sx, sy, TILE, TILE);
-      ctx.strokeStyle = 'rgba(224,120,60,0.9)';
-      ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
     }
   }
 
