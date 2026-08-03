@@ -11,6 +11,7 @@ import {
 } from './constants';
 import {
   createGameState,
+  debugLayScentTrailToFood,
   foodAt,
   isNestAt,
   obstacleAt,
@@ -180,6 +181,17 @@ export function initColonyGame(): void {
       player.pendingAction = null;
       player.attackTarget = null;
       player.path = path;
+    }
+  });
+
+  // dev shortcut: right-click a food tile to lay a scent trail to it as if
+  // a scout had already found it, for quicker testing of trail-following
+  // behavior without manually playing a scout there and back
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const { x, y } = screenToTile(state, e.clientX, e.clientY);
+    if (foodAt(state, x, y)) {
+      debugLayScentTrailToFood(state, x, y, performance.now());
     }
   });
 

@@ -276,7 +276,9 @@ export function render(state: GameState, now: number): void {
     ctx.globalAlpha = 1;
   }
 
-  // F12 debug overlay: drop-site candidates (teal) under walls-to-dig (amber)
+  // F12 debug overlay: drop-site candidates (teal) under walls-to-dig
+  // (nest=amber, trail=magenta), with a yellow/white outline on whichever
+  // food/wall tile is actually some colonist's forageTarget/wallTarget
   if (state.debugOverlay) {
     const minTX = Math.max(0, Math.floor(camX / TILE));
     const maxTX = Math.min(MAP_W - 1, Math.ceil((camX + canvas.width) / TILE));
@@ -310,6 +312,36 @@ export function render(state: GameState, now: number): void {
         continue;
       ctx.fillStyle = 'rgba(224,60,190,0.45)';
       ctx.fillRect(sx, sy, TILE, TILE);
+    }
+
+    // outline whichever food/wall tile is some colonist's current
+    // forageTarget/wallTarget, on top of the fills above, so it's obvious
+    // at a glance which of the queued candidates are actually claimed
+    const forageTargets = new Set<string>();
+    const wallTargets = new Set<string>();
+    for (const c of state.colonists) {
+      if (c.forageTarget)
+        forageTargets.add(c.forageTarget.x + ',' + c.forageTarget.y);
+      if (c.wallTarget) wallTargets.add(c.wallTarget.x + ',' + c.wallTarget.y);
+    }
+    ctx.lineWidth = 1;
+    for (const key of forageTargets) {
+      const [tx, ty] = key.split(',').map(Number);
+      const sx = tx * TILE - camX,
+        sy = ty * TILE - camY;
+      if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height)
+        continue;
+      ctx.strokeStyle = '#e8c44f';
+      ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
+    }
+    for (const key of wallTargets) {
+      const [tx, ty] = key.split(',').map(Number);
+      const sx = tx * TILE - camX,
+        sy = ty * TILE - camY;
+      if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height)
+        continue;
+      ctx.strokeStyle = '#ffffff';
+      ctx.strokeRect(sx + 0.5, sy + 0.5, TILE - 1, TILE - 1);
     }
   }
 

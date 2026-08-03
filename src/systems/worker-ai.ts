@@ -1,37 +1,40 @@
-// Worker AI: a behavior tree. AtNest is idle/home base — a worker there
-// prefers heading out on a scent trail it detects, then food it can see
-// nearby with no trail at all, then clearing the wall tile closest to the
-// nest, then helping tunnel toward an alarm a soldier can't otherwise reach,
-// and only then just waiting. FollowingScent/CarryingFood/CarryingWall/
-// HelpingSoldier handle an errand to completion; an attack at any point
-// during one drops whatever's held (restored to the world, never lost) and
-// reroutes home laying an alarm trail (see handleAttackFlag / fleeBranch).
-// There's no explicit state field — every branch's guard condition reads
-// blackboard fields (carrying/forageTarget/tunnelTarget/scentActive+scentType
-// /attacked) that are only ever set by one branch and cleared by whichever
-// branch finishes with them, so the tree re-derives "what to do" from those
-// fields fresh every tick instead of tracking a redundant enum. Workers are
-// deliberately not autonomous foragers — they only ever act on a scent
-// trail, food they can see, the nearest wall material, or an alarm.
+// Worker AI: a behavior tree. A worker near the nest with nothing to forage
+// prefers picking up a scent trail it detects, then food it can see nearby
+// with no trail at all, then a wall sitting on some other trail it isn't
+// chasing, then the wall tile closest to the nest, and only then just
+// waiting. FindingFood/CarryingFood/CarryingWall handle an errand to
+// completion; an attack at any point during one drops whatever's held
+// (restored to the world, never lost) and reroutes home laying an alarm
+// trail (see handleAttackFlag / fleeBranch).
+// There's no explicit state field — every branch's guard condition (or, for
+// findingFoodBranch/findingWallBranch/nestWallCleanupBranch, internal
+// logic) reads blackboard fields (carrying/forageTarget/wallTarget
+// /scentActive+scentType/attacked) that are cleared by whichever branch
+// finishes with them, so the tree re-derives "what to do" from those fields
+// fresh every tick instead of tracking a redundant enum. wallTarget is the
+// one field two branches can write — nestWallCleanupBranch only ever hands
+// it off, findingWallBranch (which always runs first) is what actually
+// pursues it either way.
+// Workers are deliberately not autonomous foragers — they only ever act on
+// a scent trail, food they can see, or the nearest wall material.
 import type { Colonist, FoodItem, GameState, HudRefs } from '../types/types';
 import {
   COLONIST_FORAGE_RADIUS,
   COLONIST_MOVE_DUR,
   SCOUT_DIG_MOVE_DUR,
-  SOLDIER_ALERT_SCENT_RADIUS,
   WORKER_FRONTIER_SEARCH_RADIUS,
 } from '../constants';
 import {
   claimedForageTargets,
+  claimedWallTargets,
   dropCarried,
   effectiveNestFoodRadius,
   findFrontierDropSite,
   foodAt,
-  nearestAlarmSource,
-  nearestDiggableWall,
   nearestDiggableWallNearNest,
   nearestFoodTo,
   nearestFoodViaTrail,
+  nearestTrailWall,
   nestDistance,
   placeFoodNear,
   randomOpenTileNear,
@@ -100,8 +103,8 @@ const handleAttackFlag: BTNode<WorkerCtx> = action(
     dropCarried(state, colonist);
     colonist.forageTarget = null;
     colonist.dropTarget = null;
+    colonist.wallTarget = null;
     colonist.carryOrigin = null;
-    colonist.tunnelTarget = null;
     colonist.path = [];
     triggerAlarm(state, colonist, now);
   },
@@ -164,11 +167,11 @@ const carryingWallBranch: BTNode<WorkerCtx> = sequence(
       colonist.dropTarget = null;
       colonist.path = [];
       if (
-        colonist.carryOrigin === 'followingScent' &&
+        colonist.carryOrigin === 'forage' &&
         colonist.forageTarget &&
         foodAt(state, colonist.forageTarget.x, colonist.forageTarget.y)
       ) {
-        // leave forageTarget set — followingScentBranch resumes it next tick
+        // leave forageTarget set — findingFoodBranch resumes it next tick
       } else {
         colonist.forageTarget = null;
       }
@@ -242,12 +245,50 @@ const carryingFoodBranch: BTNode<WorkerCtx> = sequence(
   }),
 );
 
-// following an active scent trail toward the food it reports, tunneling
-// permanently through any wall tile in the way (unlike a scout's temporary dig)
-const followingScentBranch: BTNode<WorkerCtx> = sequence(
-  condition(({ colonist }) => colonist.forageTarget !== null),
-  action(({ state, colonist, walkable, now }) => {
-    const f = colonist.forageTarget!;
+// repeatedly calls a food-candidate query (nearestFoodViaTrail/nearestFoodTo),
+// skipping any candidate with no flat walkable path in, from the colonist's
+// current tile, until a reachable candidate turns up or the query runs out
+// of candidates to exclude. Digging toward not-yet-reachable food isn't
+// this branch's job anymore (see findingWallBranch), so a candidate that
+// requires digging through even one wall is simply skipped rather than
+// tentatively accepted.
+function nextReachableFood(
+  state: GameState,
+  colonist: Colonist,
+  find: (exclude: Set<string>) => FoodItem | null,
+  claimed: Set<string>,
+): FoodItem | null {
+  const exclude = new Set(claimed);
+  for (;;) {
+    const candidate = find(exclude);
+    if (!candidate) return null;
+    if (
+      isAdjacent(colonist.tileX, colonist.tileY, candidate.x, candidate.y) ||
+      bfsToAdjacent(
+        colonist.tileX,
+        colonist.tileY,
+        candidate.x,
+        candidate.y,
+        (x, y) => stateWalkable(state, x, y),
+      ).length > 0
+    )
+      return candidate;
+    exclude.add(candidate.x + ',' + candidate.y);
+  }
+}
+
+// find-or-pursue the closest food: if already chasing a target, walk toward
+// it; otherwise, only while near the nest, look for a new one — a scent
+// trail first, then food merely in sight with no trail — and commit to it,
+// deferring the first step of pursuit to next tick. Never digs — a target
+// that turns out to be blocked is simply dropped (see findingWallBranch and
+// nestWallCleanupBranch for wall clearing). Reports failure only when near
+// the nest with no existing target and nothing found, so the selector falls
+// through to wall cleanup.
+const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
+  const { state, colonist, walkable } = ctx;
+  if (colonist.forageTarget) {
+    const f = colonist.forageTarget;
     if (isAdjacent(colonist.tileX, colonist.tileY, f.x, f.y)) {
       const idx = state.foodItems.findIndex(
         (fi) => fi.x === f.x && fi.y === f.y,
@@ -268,45 +309,11 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
         f.y,
         walkable,
       );
-    }
-    if (colonist.path.length === 0) {
-      // no flat route in — dig toward the target one known wall at a time
-      // instead of a weighted pathfinder committing to a whole multi-wall
-      // route (see nestWallsToDig/trailWallsToDig in state.ts for how walls
-      // get queued)
-      const wall = nearestDiggableWall(state, f.x, f.y);
-      if (!wall) {
-        colonist.forageTarget = null;
-        return;
-      }
-      if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
-        setWall(state, wall.x, wall.y, false);
-        const key = wall.x + ',' + wall.y;
-        // digging can un-pin a scent trail entry that was frozen while this
-        // wall stood (see pruneScentTrail) — refresh its timestamp so it
-        // doesn't get pruned before anyone benefits from the tile opening up
-        if (state.scentTrail.has(key)) state.scentTrail.set(key, now);
-        colonist.carrying = 'obstacle';
-        colonist.carryOrigin = 'followingScent';
-        colonist.path = [];
-        spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
-        return;
-      }
-      colonist.path = bfsToAdjacent(
-        colonist.tileX,
-        colonist.tileY,
-        wall.x,
-        wall.y,
-        walkable,
-      );
       if (colonist.path.length === 0) {
-        // no walkable-only approach yet — this is likely a multi-tile-deep
-        // wall where nearestDiggableWall picked the tile nearest the food
-        // but an outer tile still blocks it. Flag it unreachable (cleared
-        // wholesale on the next successful dig, see setWall) so the next
-        // call picks the next-nearest wall instead of abandoning the food
-        // target outright.
-        state.unreachableWalls.add(wall.x + ',' + wall.y);
+        // became unreachable since it was selected (e.g. a wall went back
+        // up in the way) — give up rather than dig; findingWallBranch/
+        // nestWallCleanupBranch own wall-clearing, not this branch
+        colonist.forageTarget = null;
         return;
       }
     }
@@ -321,132 +328,16 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
     } else {
       colonist.path = []; // occupied/blocked since planning — force a replan next tick
     }
-  }),
-);
-
-// helping a soldier reach an alarm source that a wall is blocking: paths
-// toward the alarm the same way followingScentBranch paths toward food,
-// tunneling permanently through whatever wall is in the way. Only ever
-// committed to by atNestBranch, and only once a flat (non-digging) route was
-// already tried and failed — if a soldier can already get there unaided,
-// workers stay out of it.
-const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
-  condition(({ colonist }) => colonist.tunnelTarget !== null),
-  action(({ state, colonist, walkable, now }) => {
-    const t = colonist.tunnelTarget!;
-    if (
-      isAdjacent(colonist.tileX, colonist.tileY, t.x, t.y) ||
-      !nearestAlarmSource(
-        state,
-        colonist.tileX,
-        colonist.tileY,
-        SOLDIER_ALERT_SCENT_RADIUS,
-      )
-    ) {
-      colonist.tunnelTarget = null;
-      colonist.path = [];
-      return;
-    }
-    if (colonist.path.length === 0) {
-      colonist.path = bfsToAdjacent(
-        colonist.tileX,
-        colonist.tileY,
-        t.x,
-        t.y,
-        walkable,
-      );
-    }
-    if (colonist.path.length === 0) {
-      const wall = nearestDiggableWall(state, t.x, t.y);
-      if (!wall) {
-        colonist.tunnelTarget = null;
-        return;
-      }
-      if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
-        setWall(state, wall.x, wall.y, false);
-        const key = wall.x + ',' + wall.y;
-        if (state.scentTrail.has(key)) state.scentTrail.set(key, now);
-        colonist.carrying = 'obstacle';
-        colonist.carryOrigin = 'helpingSoldier';
-        colonist.path = [];
-        spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
-        return;
-      }
-      colonist.path = bfsToAdjacent(
-        colonist.tileX,
-        colonist.tileY,
-        wall.x,
-        wall.y,
-        walkable,
-      );
-      if (colonist.path.length === 0) {
-        // see the matching comment in followingScentBranch: flag it
-        // unreachable rather than abandoning the tunnel target outright
-        state.unreachableWalls.add(wall.x + ',' + wall.y);
-        return;
-      }
-    }
-    const next = colonist.path.shift()!;
-    if (walkable(next.x, next.y)) {
-      startStep(
-        colonist,
-        next.x,
-        next.y,
-        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
-      );
-    } else {
-      colonist.path = [];
-    }
-  }),
-);
-
-// repeatedly calls a food-candidate query (nearestFoodViaTrail/nearestFoodTo),
-// skipping any candidate with no path in — including a tunneling one, when
-// allowDig is set — from the colonist's current tile, until a reachable
-// candidate turns up or the query runs out of candidates to exclude.
-// allowDig should only be true for trail-reported food: bfsToAdjacent never
-// crosses walls, so a trail candidate that requires digging through even one
-// resealed wall would otherwise always get rejected here, even though
-// followingScentBranch can (and is meant to) tunnel through it. Sight-only
-// food (no trail) gets no such benefit of the doubt — see atNestBranch.
-function nextReachableFood(
-  state: GameState,
-  colonist: Colonist,
-  find: (exclude: Set<string>) => FoodItem | null,
-  claimed: Set<string>,
-  allowDig: boolean,
-): FoodItem | null {
-  const exclude = new Set(claimed);
-  for (;;) {
-    const candidate = find(exclude);
-    if (!candidate) return null;
-    if (
-      isAdjacent(colonist.tileX, colonist.tileY, candidate.x, candidate.y) ||
-      bfsToAdjacent(
-        colonist.tileX,
-        colonist.tileY,
-        candidate.x,
-        candidate.y,
-        (x, y) => stateWalkable(state, x, y),
-      ).length > 0 ||
-      (allowDig &&
-        nearestDiggableWall(state, candidate.x, candidate.y) !== null)
-    )
-      return candidate;
-    exclude.add(candidate.x + ',' + candidate.y);
+    return;
   }
-}
 
-// stationed at the nest: pick up a scent trail if one's in range, else food
-// it can see nearby with no trail leading to it — foraging takes priority
-// since food waiting to be fetched matters more than nest upkeep — otherwise
-// walk to and clear the wall tile closest to the nest (clearing the nest's
-// surroundings from the inside out, rather than whatever happens to be
-// underfoot), otherwise commit to tunneling toward an alarm a soldier can't
-// reach unaided, otherwise just wait. This is the tree's default branch (no
-// condition), reached whenever nothing else applies
-const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
-  const { state, colonist, walkable, now } = ctx;
+  // already committed to a wall errand (findingWallBranch/nestWallCleanupBranch)
+  // — a trail wall can be arbitrarily far outside the nest's food radius, so
+  // don't let the "not near nest, walk home" fallback below hijack movement
+  // every tick and strand findingWallBranch without a turn to ever pursue it
+  if (colonist.wallTarget) return 'failure';
+
+  // no target: only look for one while near the nest
   const nearNest =
     nestDistance(state, colonist.tileX, colonist.tileY) <=
     effectiveNestFoodRadius(state);
@@ -459,10 +350,10 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
 
   // nearestFoodViaTrail/nearestFoodTo only judge distance, not reachability,
   // so a candidate can be walled off from every side by occupied tiles with
-  // no path in or out. Reject those here (same weighted, tunnel-capable
-  // search followingScentBranch uses to actually walk there) and keep
-  // falling back to the next-nearest instead of committing to a target the
-  // worker would just have to drop next tick.
+  // no path in or out. Reject those here (same flat-walkable check this
+  // branch uses to actually walk there) and keep falling back to the
+  // next-nearest instead of committing to a target the worker would just
+  // have to drop next tick.
   const trailFood = nextReachableFood(
     state,
     colonist,
@@ -475,7 +366,6 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
         exclude,
       ),
     claimed,
-    true,
   );
   if (trailFood) {
     colonist.forageTarget = trailFood;
@@ -496,21 +386,47 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
         exclude,
       ),
     claimed,
-    false,
   );
   if (sightFood) {
     colonist.forageTarget = sightFood;
     return;
   }
 
-  const wall = nearestDiggableWallNearNest(state);
-  if (wall) {
+  return 'failure'; // nothing to forage — fall through to wall cleanup
+});
+
+// find-or-pursue a wall to dig: if already committed to one (wallTarget),
+// walk to it and dig it — this is the only branch that ever moves toward a
+// wall, whether it picked the target itself or nestWallCleanupBranch handed
+// one off (that branch always runs after this one, so once it sets
+// wallTarget this branch is what actually carries it out starting next
+// tick, the same "commit now, pursue next tick" pattern findingFoodBranch
+// uses for forageTarget). With nothing pending, looks for the closest wall
+// sitting on a live scent trail — clearing one that findingFoodBranch never
+// committed to chasing (e.g. the trail's food is out of forage range), so
+// it doesn't sit undug forever — ranked by distance to the worker, not any
+// specific goal, since there's no food target driving this.
+const findingWallBranch: BTNode<WorkerCtx> = action(
+  ({ state, colonist, walkable, now }) => {
+    if (!colonist.wallTarget) {
+      colonist.wallTarget = nearestTrailWall(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        claimedWallTargets(state, colonist),
+      );
+      if (!colonist.wallTarget) return 'failure'; // no trail wall — fall through to nest-wall cleanup
+      return; // commit — pursuit starts next tick
+    }
+    const wall = colonist.wallTarget;
+
     if (isAdjacent(colonist.tileX, colonist.tileY, wall.x, wall.y)) {
       setWall(state, wall.x, wall.y, false);
       const key = wall.x + ',' + wall.y;
       if (state.scentTrail.has(key)) state.scentTrail.set(key, now);
       colonist.carrying = 'obstacle';
-      colonist.carryOrigin = 'atNest';
+      colonist.carryOrigin = 'nestClean';
+      colonist.wallTarget = null;
       colonist.path = [];
       spawnFloatingText(state, colonist, 'dug through wall', '#b0aaa0');
       return;
@@ -525,45 +441,38 @@ const atNestBranch: BTNode<WorkerCtx> = action((ctx) => {
       );
       if (colonist.path.length === 0) {
         state.unreachableWalls.add(wall.x + ',' + wall.y);
+        colonist.wallTarget = null;
         return;
-      } // no walkable-only approach — stop re-picking this one
+      }
     }
-    if (colonist.path.length) {
-      const next = colonist.path.shift()!;
-      if (walkable(next.x, next.y))
-        startStep(
-          colonist,
-          next.x,
-          next.y,
-          dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
-        );
-      else colonist.path = [];
-    }
-    return;
-  }
-
-  if (!colonist.tunnelTarget) {
-    const alarmSrc = nearestAlarmSource(
-      state,
-      colonist.tileX,
-      colonist.tileY,
-      SOLDIER_ALERT_SCENT_RADIUS,
-    );
-    if (
-      alarmSrc &&
-      !isAdjacent(colonist.tileX, colonist.tileY, alarmSrc.x, alarmSrc.y)
-    ) {
-      const flatRoute = bfsToAdjacent(
-        colonist.tileX,
-        colonist.tileY,
-        alarmSrc.x,
-        alarmSrc.y,
-        walkable,
+    const next = colonist.path.shift()!;
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
       );
-      if (flatRoute.length === 0) colonist.tunnelTarget = alarmSrc; // no walk-only route — a wall's in the way, commit to tunneling
-    }
-  }
-});
+    else colonist.path = [];
+  },
+);
+
+// stationed at the nest with nothing to forage or dig off a trail
+// (findingFoodBranch/findingWallBranch already came up empty): commit to
+// the wall tile closest to the nest, from the inside out, rather than
+// whatever happens to be underfoot — findingWallBranch (which always runs
+// first) is what actually walks to and digs it, starting next tick. The
+// tree's true default (no condition, nothing after it) — if no wall
+// qualifies either, just idle.
+const nestWallCleanupBranch: BTNode<WorkerCtx> = action(
+  ({ state, colonist }) => {
+    if (colonist.wallTarget) return; // already pending — findingWallBranch owns it
+    colonist.wallTarget = nearestDiggableWallNearNest(
+      state,
+      claimedWallTargets(state, colonist),
+    );
+  },
+);
 
 const workerTree: BTNode<WorkerCtx> = sequence(
   handleAttackFlag,
@@ -571,9 +480,9 @@ const workerTree: BTNode<WorkerCtx> = sequence(
     fleeBranch,
     carryingWallBranch,
     carryingFoodBranch,
-    followingScentBranch,
-    helpingSoldierBranch,
-    atNestBranch,
+    findingFoodBranch,
+    findingWallBranch,
+    nestWallCleanupBranch,
   ),
 );
 

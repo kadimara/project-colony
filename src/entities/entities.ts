@@ -99,10 +99,10 @@ function makeColonist(caste: CasteKey, x: number, y: number): Colonist {
     scoutState: 'scouting',
     dropTarget: null,
     forageTarget: null,
+    wallTarget: null,
     carryOrigin: null,
     alertTarget: null,
     aggroTarget: null,
-    tunnelTarget: null,
     nextWanderAt:
       performance.now() +
       COLONIST_WANDER_MIN_MS +

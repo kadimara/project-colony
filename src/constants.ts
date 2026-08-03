@@ -59,7 +59,7 @@ export const SOLDIER_ATK_DAMAGE = 3;
 export const SOLDIER_ATK_COOLDOWN = 650;
 
 // ---- roaming enemies: wander until they see you, then chase and attack ----
-export const ENEMY_COUNT = 20;
+export const ENEMY_COUNT = 0;
 export const ENEMY_MAX_HP = 10;
 export const ENEMY_MOVE_DUR = 280;
 export const ENEMY_ATK_DAMAGE = 2;
@@ -75,7 +75,7 @@ export const ENEMY_SPAWN_MIN_DIST = 10; // keep initial spawns away from the pla
 // ---- nest: fixed 2x2 structure. Player manually spawns ants here,
 // consuming food that must be sitting within NEST_FOOD_RADIUS tiles ----
 export const NEST_SIZE = 2;
-export const NEST_FOOD_RADIUS = 6; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
+export const NEST_FOOD_RADIUS = 3; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
 export const NEST_FOOD_COST = 1; // 1 ant costs 1 food, consumed from the radius
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
 export const MAX_COLONISTS = 15;

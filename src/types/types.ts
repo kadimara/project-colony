@@ -93,9 +93,9 @@ export interface Colonist extends Actor {
   scoutState: ScoutState;
   dropTarget: Point | null;
   forageTarget: FoodItem | null;
-  carryOrigin: 'atNest' | 'followingScent' | 'helpingSoldier' | null;
+  wallTarget: Point | null;
+  carryOrigin: 'forage' | 'nestClean' | null;
   alertTarget: Point | null;
-  tunnelTarget: Point | null;
   aggroTarget: Enemy | null;
   nextWanderAt: number;
   nextRepathAt: number;
@@ -179,7 +179,7 @@ export interface GameState {
   wallSet: Set<string>;
   unreachableWalls: Set<string>;
   // wall tiles a worker should treat as diggable, split by why they qualify
-  // so nearestDiggableWall/nearestDiggableWallNearNest can search trail
+  // so nearestTrailWall/nearestDiggableWallNearNest can search trail
   // walls first without a runtime scentTrail check per candidate — both are
   // always a subset of wallSet, kept in sync in setWall. A wall can appear
   // in both. If nest.level ever starts advancing effectiveNestFoodRadius,

@@ -30,6 +30,7 @@ import {
 } from '../constants';
 import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
 import { buildGroundAtlas, patchGroundAtlasTile } from '../render/ground-atlas';
+import { findWeightedPath } from '../systems/pathfinding';
 
 export function terrainWalkable(
   state: GameState,
@@ -598,16 +599,18 @@ export function findFrontierDropSite(
 
 // nearest entry in a diggable-wall set to (x,y) by straight-line distance,
 // skipping anything already flagged unreachable (see setWall/unreachableWalls)
+// or claimed by another colonist (see claimedWallTargets)
 function nearestInWallSet(
   state: GameState,
   wallsToDig: Set<string>,
   x: number,
   y: number,
+  exclude: Set<string>,
 ): Point | null {
   let best: Point | null = null,
     bestDist = Infinity;
   for (const key of wallsToDig) {
-    if (state.unreachableWalls.has(key)) continue;
+    if (state.unreachableWalls.has(key) || exclude.has(key)) continue;
     const [wx, wy] = key.split(',').map(Number);
     const d = Math.hypot(wx - x, wy - y);
     if (d < bestDist) {
@@ -618,25 +621,17 @@ function nearestInWallSet(
   return best;
 }
 
-// nearest diggable wall to (goalX,goalY) — trailWallsToDig (resealed walls
-// blocking a known food/alarm route) always wins over nestWallsToDig, since
-// the trail decays and its route matters more than routine nest upkeep.
-// Ranked by distance to the goal (not the worker) so digging actually heads
-// toward the food/alarm rather than picking whatever wall happens to be
-// nearest wherever the worker is currently standing, which could be in an
-// unrelated direction entirely. A wall two-plus tiles deep can still pick a
-// tile with no walkable approach yet (the nearer tile is still standing in
-// front of it) — callers should flag that in unreachableWalls and retry
-// rather than giving up (see followingScentBranch/helpingSoldierBranch).
-export function nearestDiggableWall(
+// nearest wall sitting on a live scent trail to (x,y), regardless of any
+// specific food/alarm goal — used by findingWallBranch to proactively clear
+// trail-blocking walls even when no worker has committed to chasing the
+// food that trail reports (e.g. it's outside forage range).
+export function nearestTrailWall(
   state: GameState,
-  goalX: number,
-  goalY: number,
+  x: number,
+  y: number,
+  exclude: Set<string>,
 ): Point | null {
-  return (
-    nearestInWallSet(state, state.trailWallsToDig, goalX, goalY) ??
-    nearestInWallSet(state, state.nestWallsToDig, goalX, goalY)
-  );
+  return nearestInWallSet(state, state.trailWallsToDig, x, y, exclude);
 }
 
 // nearest entry in a diggable-wall set to the nest, ranked by nestDistance
@@ -644,17 +639,18 @@ export function nearestDiggableWall(
 // empties the surroundings from the inside out, and bounded to the nest's
 // own food radius since trailWallsToDig can hold far-away scent-overlay
 // walls that must never count as nest-clearing work. Skips anything already
-// flagged unreachable (see setWall) so a wall with no walkable-only approach
-// doesn't get re-picked and stalled on every tick.
+// flagged unreachable (see setWall) or claimed by another colonist (see
+// claimedWallTargets) so it doesn't get re-picked and stalled on every tick.
 function nearestInWallSetNearNest(
   state: GameState,
   wallsToDig: Set<string>,
   radius: number,
+  exclude: Set<string>,
 ): Point | null {
   let best: Point | null = null,
     bestDist = Infinity;
   for (const key of wallsToDig) {
-    if (state.unreachableWalls.has(key)) continue;
+    if (state.unreachableWalls.has(key) || exclude.has(key)) continue;
     const [x, y] = key.split(',').map(Number);
     const d = nestDistance(state, x, y);
     if (d > radius) continue;
@@ -668,13 +664,62 @@ function nearestInWallSetNearNest(
 
 // nearest diggable wall to the nest — trailWallsToDig always wins over
 // nestWallsToDig, even a tile that's closer, since the trail decays and its
-// route matters more than routine nest upkeep (see nearestDiggableWall).
-export function nearestDiggableWallNearNest(state: GameState): Point | null {
+// route matters more than routine nest upkeep (see nearestTrailWall).
+export function nearestDiggableWallNearNest(
+  state: GameState,
+  exclude: Set<string>,
+): Point | null {
   const radius = effectiveNestFoodRadius(state);
   return (
-    nearestInWallSetNearNest(state, state.trailWallsToDig, radius) ??
-    nearestInWallSetNearNest(state, state.nestWallsToDig, radius)
+    nearestInWallSetNearNest(state, state.trailWallsToDig, radius, exclude) ??
+    nearestInWallSetNearNest(state, state.nestWallsToDig, radius, exclude)
   );
+}
+
+// every other live colonist's currently-claimed wallTarget, keyed "x,y" —
+// mirrors claimedForageTargets so two colonists never converge on digging
+// the exact same wall.
+export function claimedWallTargets(
+  state: GameState,
+  exceptColonist?: Colonist,
+): Set<string> {
+  const claimed = new Set<string>();
+  for (const c of state.colonists) {
+    if (c === exceptColonist || !c.wallTarget || c.hp <= 0) continue;
+    claimed.add(c.wallTarget.x + ',' + c.wallTarget.y);
+  }
+  return claimed;
+}
+
+// dev shortcut (right-click a food tile in game.ts): lays a synthetic scent
+// trail from the nest to that food along the same tunnel-capable weighted
+// route a scout actually walks (see scoutCost/findWeightedPath), exactly as
+// if a scout had already found it and returned — lets a nearby worker pick
+// it up immediately, for quicker manual testing. Any wall tile the route
+// crosses is marked straight into trailWallsToDig so it's diggable too,
+// same as a wall a real scout's trail happens to reseal over.
+export function debugLayScentTrailToFood(
+  state: GameState,
+  foodX: number,
+  foodY: number,
+  now: number,
+): void {
+  const path = findWeightedPath(
+    state.nest.x,
+    state.nest.y,
+    foodX,
+    foodY,
+    (x, y) => scoutCost(state, x, y),
+  );
+  if (path.length === 0) return;
+  const origin = [{ x: foodX, y: foodY }];
+  for (const p of [{ x: state.nest.x, y: state.nest.y }, ...path]) {
+    const key = p.x + ',' + p.y;
+    state.scentTrail.set(key, now);
+    state.scentTrailSource.set(key, origin);
+    state.scentTrailType.set(key, 'food');
+    if (isWall(state, p.x, p.y)) state.trailWallsToDig.add(key);
+  }
 }
 
 export function spawnFloatingText(
