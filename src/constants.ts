@@ -75,7 +75,7 @@ export const ENEMY_SPAWN_MIN_DIST = 10; // keep initial spawns away from the pla
 // ---- nest: fixed 2x2 structure. Player manually spawns ants here,
 // consuming food that must be sitting within NEST_FOOD_RADIUS tiles ----
 export const NEST_SIZE = 2;
-export const NEST_FOOD_RADIUS = 3; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
+export const NEST_FOOD_RADIUS = 6; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
 export const NEST_FOOD_COST = 1; // 1 ant costs 1 food, consumed from the radius
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
 export const MAX_COLONISTS = 15;
