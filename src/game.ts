@@ -230,6 +230,10 @@ export function initColonyGame(): void {
       if (state.player.caste !== null) closeCasteOverlay(hud);
       setMapOpen(state, hud, false, () => renderWorldMap(state));
     }
+    if (e.key === 'F12') {
+      e.preventDefault();
+      state.debugOverlay = !state.debugOverlay;
+    }
   });
 
   // ---- main loop ----

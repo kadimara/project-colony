@@ -14,6 +14,7 @@ import { getClampedCamX, getClampedCamY } from './camera';
 import {
   effectiveNestFoodRadius,
   isColonistAt,
+  isFrontierDropCandidate,
   isNestAt,
   isWall,
   nestCells,
@@ -273,6 +274,34 @@ export function render(state: GameState, now: number): void {
     ctx.textAlign = 'center';
     ctx.fillText(ft.text, ft.worldX - camX, ft.worldY - camY - yOff);
     ctx.globalAlpha = 1;
+  }
+
+  // F12 debug overlay: drop-site candidates (teal) under walls-to-dig (amber)
+  if (state.debugOverlay) {
+    const minTX = Math.max(0, Math.floor(camX / TILE));
+    const maxTX = Math.min(MAP_W - 1, Math.ceil((camX + canvas.width) / TILE));
+    const minTY = Math.max(0, Math.floor(camY / TILE));
+    const maxTY = Math.min(MAP_H - 1, Math.ceil((camY + canvas.height) / TILE));
+
+    for (let ty = minTY; ty <= maxTY; ty++) {
+      for (let tx = minTX; tx <= maxTX; tx++) {
+        if (!isFrontierDropCandidate(state, tx, ty)) continue;
+        const sx = tx * TILE - camX,
+          sy = ty * TILE - camY;
+        ctx.fillStyle = 'rgba(90,170,220,0.35)';
+        ctx.fillRect(sx, sy, TILE, TILE);
+      }
+    }
+
+    for (const key of state.wallsToDig) {
+      const [tx, ty] = key.split(',').map(Number);
+      const sx = tx * TILE - camX,
+        sy = ty * TILE - camY;
+      if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height)
+        continue;
+      ctx.fillStyle = 'rgba(224,120,60,0.45)';
+      ctx.fillRect(sx, sy, TILE, TILE);
+    }
   }
 
   const grad = ctx.createRadialGradient(
