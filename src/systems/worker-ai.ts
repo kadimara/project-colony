@@ -272,7 +272,8 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
     if (colonist.path.length === 0) {
       // no flat route in — dig toward the target one known wall at a time
       // instead of a weighted pathfinder committing to a whole multi-wall
-      // route (see wallsToDig in state.ts for how walls get queued)
+      // route (see nestWallsToDig/trailWallsToDig in state.ts for how walls
+      // get queued)
       const wall = nearestDiggableWall(state, f.x, f.y);
       if (!wall) {
         colonist.forageTarget = null;
@@ -299,7 +300,13 @@ const followingScentBranch: BTNode<WorkerCtx> = sequence(
         walkable,
       );
       if (colonist.path.length === 0) {
-        colonist.forageTarget = null;
+        // no walkable-only approach yet — this is likely a multi-tile-deep
+        // wall where nearestDiggableWall picked the tile nearest the food
+        // but an outer tile still blocks it. Flag it unreachable (cleared
+        // wholesale on the next successful dig, see setWall) so the next
+        // call picks the next-nearest wall instead of abandoning the food
+        // target outright.
+        state.unreachableWalls.add(wall.x + ',' + wall.y);
         return;
       }
     }
@@ -373,7 +380,9 @@ const helpingSoldierBranch: BTNode<WorkerCtx> = sequence(
         walkable,
       );
       if (colonist.path.length === 0) {
-        colonist.tunnelTarget = null;
+        // see the matching comment in followingScentBranch: flag it
+        // unreachable rather than abandoning the tunnel target outright
+        state.unreachableWalls.add(wall.x + ',' + wall.y);
         return;
       }
     }

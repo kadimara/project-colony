@@ -178,13 +178,17 @@ export interface GameState {
   map: number[][];
   wallSet: Set<string>;
   unreachableWalls: Set<string>;
-  // every wall tile a worker should treat as diggable: nest-radius walls
-  // plus resealed walls that coincide with a live scent-trail tile (see
-  // setWall) — always a subset of wallSet, kept in sync there. If nest.level
-  // ever starts advancing effectiveNestFoodRadius, re-run
-  // populateWallsToDigNearNest after the change since this set is event-
-  // driven (updated on setWall calls), not recomputed from radius each tick.
-  wallsToDig: Set<string>;
+  // wall tiles a worker should treat as diggable, split by why they qualify
+  // so nearestDiggableWall/nearestDiggableWallNearNest can search trail
+  // walls first without a runtime scentTrail check per candidate — both are
+  // always a subset of wallSet, kept in sync in setWall. A wall can appear
+  // in both. If nest.level ever starts advancing effectiveNestFoodRadius,
+  // re-run populateWallsToDigNearNest after the change since nestWallsToDig
+  // is event-driven (updated on setWall calls), not recomputed from radius
+  // each tick.
+  nestWallsToDig: Set<string>;
+  // resealed walls that coincide with a live scent-trail tile (see setWall)
+  trailWallsToDig: Set<string>;
   foodItems: FoodItem[];
   enemies: Enemy[];
   colonists: Colonist[];

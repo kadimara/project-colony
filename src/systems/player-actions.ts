@@ -300,7 +300,7 @@ export function onPlayerArrived(
   // scent must be stamped before the digTile reseal below runs: a scout
   // standing on a just-dug tile needs state.scentTrail to already have this
   // tile's key by the time setWall(...,true) reseals it, so setWall can flag
-  // the overlap into wallsToDig (mirrors scout-ai.ts's tree order, where
+  // the overlap into trailWallsToDig (mirrors scout-ai.ts's tree order, where
   // handleScentUpdate runs before movePathStep's reseal)
   if (player.caste === 'scout') {
     const wasActive = player.scentActive;

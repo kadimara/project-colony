@@ -293,13 +293,22 @@ export function render(state: GameState, now: number): void {
       }
     }
 
-    for (const key of state.wallsToDig) {
+    for (const key of state.nestWallsToDig) {
       const [tx, ty] = key.split(',').map(Number);
       const sx = tx * TILE - camX,
         sy = ty * TILE - camY;
       if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height)
         continue;
       ctx.fillStyle = 'rgba(224,120,60,0.45)';
+      ctx.fillRect(sx, sy, TILE, TILE);
+    }
+    for (const key of state.trailWallsToDig) {
+      const [tx, ty] = key.split(',').map(Number);
+      const sx = tx * TILE - camX,
+        sy = ty * TILE - camY;
+      if (sx < -TILE || sy < -TILE || sx > canvas.width || sy > canvas.height)
+        continue;
+      ctx.fillStyle = 'rgba(224,60,190,0.45)';
       ctx.fillRect(sx, sy, TILE, TILE);
     }
   }

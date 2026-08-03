@@ -55,17 +55,17 @@ export function setWall(
   if (solid) {
     state.wallSet.add(key);
     // flag this wall as worker-diggable if it's within the nest's food
-    // radius, or if it's resealing a tile that still has a live scent trail
-    // on it (the scout tunnel-and-reseal case: a scout digs through, walks
-    // onto the open tile — stamping a scent trail there — then this same
-    // call reseals it on the next step, so the trail and the resealed wall
-    // coincide)
-    if (isNestRadiusWall(state, x, y) || state.scentTrail.has(key)) {
-      state.wallsToDig.add(key);
-    }
+    // radius, and/or if it's resealing a tile that still has a live scent
+    // trail on it (the scout tunnel-and-reseal case: a scout digs through,
+    // walks onto the open tile — stamping a scent trail there — then this
+    // same call reseals it on the next step, so the trail and the resealed
+    // wall coincide). A wall can land in both sets.
+    if (isNestRadiusWall(state, x, y)) state.nestWallsToDig.add(key);
+    if (state.scentTrail.has(key)) state.trailWallsToDig.add(key);
   } else {
     state.wallSet.delete(key);
-    state.wallsToDig.delete(key);
+    state.nestWallsToDig.delete(key);
+    state.trailWallsToDig.delete(key);
     // removing any wall can reopen a route to others that were previously
     // unreachable, so a full clear (rather than tracking exactly which
     // entries it affects) is the simplest correct invalidation
@@ -135,20 +135,21 @@ export function effectiveNestFoodRadius(state: GameState): number {
 }
 
 // true if (x,y) lies within the nest's current food-catchment radius — the
-// one place this rule lives, shared by setWall's live wallsToDig check and
-// the worldgen population pass below, so they can't drift apart
+// one place this rule lives, shared by setWall's live nestWallsToDig check
+// and the worldgen population pass below, so they can't drift apart
 function isNestRadiusWall(state: GameState, x: number, y: number): boolean {
   return nestDistance(state, x, y) <= effectiveNestFoodRadius(state);
 }
 
 // scans the whole wallSet once and flags every nest-radius wall into
-// wallsToDig — needed because createGameState/regenerateWorld build wallSet
-// directly from worldgen (buildWalls), bypassing setWall entirely, so
-// nothing else would populate wallsToDig for the starting map
+// nestWallsToDig — needed because createGameState/regenerateWorld build
+// wallSet directly from worldgen (buildWalls), bypassing setWall entirely,
+// so nothing else would populate it for the starting map. No scent trail
+// exists yet at this point, so trailWallsToDig needs no equivalent pass.
 export function populateWallsToDigNearNest(state: GameState): void {
   for (const key of state.wallSet) {
     const [x, y] = key.split(',').map(Number);
-    if (isNestRadiusWall(state, x, y)) state.wallsToDig.add(key);
+    if (isNestRadiusWall(state, x, y)) state.nestWallsToDig.add(key);
   }
 }
 
@@ -294,8 +295,9 @@ export function pruneScentTrail(state: GameState, now: number): void {
   for (const [key, laidAt] of state.scentTrail) {
     // pinned: a wall currently sits on this trail tile and still needs
     // digging (see setWall) — don't let it decay until that wall is cleared,
-    // at which point the key leaves wallsToDig and the pin lifts naturally
-    if (state.wallsToDig.has(key)) continue;
+    // at which point the key leaves trailWallsToDig and the pin lifts
+    // naturally
+    if (state.trailWallsToDig.has(key)) continue;
     const lifetime =
       state.scentTrailType.get(key) === 'alarm'
         ? ALARM_SCENT_LIFETIME_MS
@@ -594,23 +596,68 @@ export function findFrontierDropSite(
   return best;
 }
 
-// nearest wallsToDig entry to (goalX,goalY), by straight-line distance —
-// wallsToDig is a maintained list of every wall a worker might legitimately
-// need to dig (nest-radius walls + resealed walls sitting on a scent trail,
-// see setWall), so goal-directed digging just ranks that existing list
-// instead of flooding the reachable region from scratch on every call. Skips
-// anything already flagged unreachable (see setWall/unreachableWalls).
+// nearest entry in a diggable-wall set to (x,y) by straight-line distance,
+// skipping anything already flagged unreachable (see setWall/unreachableWalls)
+function nearestInWallSet(
+  state: GameState,
+  wallsToDig: Set<string>,
+  x: number,
+  y: number,
+): Point | null {
+  let best: Point | null = null,
+    bestDist = Infinity;
+  for (const key of wallsToDig) {
+    if (state.unreachableWalls.has(key)) continue;
+    const [wx, wy] = key.split(',').map(Number);
+    const d = Math.hypot(wx - x, wy - y);
+    if (d < bestDist) {
+      best = { x: wx, y: wy };
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+// nearest diggable wall to (goalX,goalY) — trailWallsToDig (resealed walls
+// blocking a known food/alarm route) always wins over nestWallsToDig, since
+// the trail decays and its route matters more than routine nest upkeep.
+// Ranked by distance to the goal (not the worker) so digging actually heads
+// toward the food/alarm rather than picking whatever wall happens to be
+// nearest wherever the worker is currently standing, which could be in an
+// unrelated direction entirely. A wall two-plus tiles deep can still pick a
+// tile with no walkable approach yet (the nearer tile is still standing in
+// front of it) — callers should flag that in unreachableWalls and retry
+// rather than giving up (see followingScentBranch/helpingSoldierBranch).
 export function nearestDiggableWall(
   state: GameState,
   goalX: number,
   goalY: number,
 ): Point | null {
+  return (
+    nearestInWallSet(state, state.trailWallsToDig, goalX, goalY) ??
+    nearestInWallSet(state, state.nestWallsToDig, goalX, goalY)
+  );
+}
+
+// nearest entry in a diggable-wall set to the nest, ranked by nestDistance
+// (not straight-line distance to an arbitrary point) so nest-clearing still
+// empties the surroundings from the inside out, and bounded to the nest's
+// own food radius since trailWallsToDig can hold far-away scent-overlay
+// walls that must never count as nest-clearing work. Skips anything already
+// flagged unreachable (see setWall) so a wall with no walkable-only approach
+// doesn't get re-picked and stalled on every tick.
+function nearestInWallSetNearNest(
+  state: GameState,
+  wallsToDig: Set<string>,
+  radius: number,
+): Point | null {
   let best: Point | null = null,
     bestDist = Infinity;
-  for (const key of state.wallsToDig) {
+  for (const key of wallsToDig) {
     if (state.unreachableWalls.has(key)) continue;
     const [x, y] = key.split(',').map(Number);
-    const d = Math.hypot(x - goalX, y - goalY);
+    const d = nestDistance(state, x, y);
+    if (d > radius) continue;
     if (d < bestDist) {
       best = { x, y };
       bestDist = d;
@@ -619,38 +666,15 @@ export function nearestDiggableWall(
   return best;
 }
 
-// nearest wallsToDig entry to the nest, ranked by nestDistance (not
-// straight-line distance to an arbitrary point) so nest-clearing still
-// empties the surroundings from the inside out, and bounded to the nest's
-// own food radius since wallsToDig can also hold far-away scent-overlay
-// walls that must never count as nest-clearing work. Skips anything already
-// flagged unreachable (see setWall) so a wall with no walkable-only approach
-// doesn't get re-picked and stalled on every tick. Walls still resealed on
-// top of a live scent trail (blocking a known food/alarm route) always win
-// over plain nest-radius walls, even ones closer to the nest, since the
-// trail decays and its route matters more than routine nest upkeep.
+// nearest diggable wall to the nest — trailWallsToDig always wins over
+// nestWallsToDig, even a tile that's closer, since the trail decays and its
+// route matters more than routine nest upkeep (see nearestDiggableWall).
 export function nearestDiggableWallNearNest(state: GameState): Point | null {
   const radius = effectiveNestFoodRadius(state);
-  let bestTrail: Point | null = null,
-    bestTrailDist = Infinity;
-  let bestPlain: Point | null = null,
-    bestPlainDist = Infinity;
-  for (const key of state.wallsToDig) {
-    if (state.unreachableWalls.has(key)) continue;
-    const [x, y] = key.split(',').map(Number);
-    const d = nestDistance(state, x, y);
-    if (d > radius) continue;
-    if (state.scentTrail.has(key)) {
-      if (d < bestTrailDist) {
-        bestTrail = { x, y };
-        bestTrailDist = d;
-      }
-    } else if (d < bestPlainDist) {
-      bestPlain = { x, y };
-      bestPlainDist = d;
-    }
-  }
-  return bestTrail ?? bestPlain;
+  return (
+    nearestInWallSetNearNest(state, state.trailWallsToDig, radius) ??
+    nearestInWallSetNearNest(state, state.nestWallsToDig, radius)
+  );
 }
 
 export function spawnFloatingText(
@@ -681,7 +705,8 @@ export function regenerateWorld(
 
   state.wallSet = buildWalls(newSeed, MAP_W, MAP_H, SPAWN_X, SPAWN_Y);
   state.unreachableWalls.clear();
-  state.wallsToDig.clear();
+  state.nestWallsToDig.clear();
+  state.trailWallsToDig.clear();
   buildGroundAtlas(state.refs, state.map, state.wallSet);
   state.foodItems.length = 0;
   for (let i = 0; i < INITIAL_FOOD_COUNT; i++) {
@@ -740,7 +765,8 @@ export function createGameState(
     map,
     wallSet,
     unreachableWalls: new Set(),
-    wallsToDig: new Set(),
+    nestWallsToDig: new Set(),
+    trailWallsToDig: new Set(),
     foodItems: [],
     enemies: [],
     colonists: [],
