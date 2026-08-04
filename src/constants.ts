@@ -102,12 +102,6 @@ export const COLONIST_ATK_DAMAGE = 3;
 export const COLONIST_ATK_COOLDOWN = 700;
 export const COLONIST_AGGRO_RADIUS = 5;
 export const COLONIST_FORAGE_RADIUS = 12;
-
-// how much closer an idle worker must be than a target's current claimant
-// before that claimant hands it off (workers only) — e.g. 0.75 means "hand
-// off only if my distance is under 75% of theirs," so two similarly-
-// positioned workers don't thrash a target back and forth every tick
-export const TARGET_HANDOFF_RATIO = 0.75;
 export const COLONIST_WANDER_MIN_MS = 1000;
 export const COLONIST_WANDER_MAX_MS = 2600;
 export const COLONIST_REPATH_MS = 500;
