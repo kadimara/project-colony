@@ -552,38 +552,20 @@ export function nearestAlarmSource(
   return best;
 }
 
-// true for a tile that's open on both ends of one axis and walled on both
-// sides of the other — i.e. a straight-through corridor cell rather than a
-// genuine frontier. A 1-tile-wide tunnel is walled on both sides for its
-// entire length, so every interior tile "borders a wall"; without this
-// check findFrontierDropSite would happily wall one of them back up,
-// resealing the very passage a worker just dug through (and trapping any
-// other colonist using that tunnel behind/ahead of it).
-function isThroughCorridorTile(
-  state: GameState,
-  x: number,
-  y: number,
-): boolean {
-  const upWall = isWall(state, x, y - 1),
-    downWall = isWall(state, x, y + 1);
-  const leftWall = isWall(state, x - 1, y),
-    rightWall = isWall(state, x + 1, y);
-  return (
-    (!upWall && !downWall && leftWall && rightWall) ||
-    (!leftWall && !rightWall && upWall && downWall)
-  );
-}
-
 // true for a tile a worker is allowed to drop a dug-up wall block on: walkable,
 // empty, not part of a known scent trail (never wall up a route that needs to
 // stay open, even where it's only a frontier tile *today* — a tile mid-tunnel
 // can still look like a dead end here if the far side hasn't been dug yet, but
 // placing a wall on any trail tile would sooner or later reseal the passage
 // once digging continues past it), outside the nest's food-catchment radius
-// (that area needs to stay clear, not get walled back in), borders at least
-// two walls, and isn't a mere pass-through point in a corridor. Shared by
-// findFrontierDropSite and the F12 debug overlay so both agree on what
-// counts as a valid drop site.
+// (that area needs to stay clear, not get walled back in), and walled on at
+// least three of its four sides. A tile with exactly two open neighbors is
+// still mid-tunnel — whether the tunnel runs straight through it or bends at
+// it — so walling it back up would reseal the very passage a worker just dug
+// through (and trap any other colonist using that tunnel behind/ahead of
+// it); only a genuine dead end with a single opening is safe to wall.
+// Shared by findFrontierDropSite and the F12 debug overlay so both agree on
+// what counts as a valid drop site.
 export function isFrontierDropCandidate(
   state: GameState,
   x: number,
@@ -597,8 +579,7 @@ export function isFrontierDropCandidate(
     (isWall(state, x - 1, y) ? 1 : 0) +
     (isWall(state, x, y + 1) ? 1 : 0) +
     (isWall(state, x, y - 1) ? 1 : 0);
-  if (wallNeighbors < 2 || isThroughCorridorTile(state, x, y)) return false;
-  return true;
+  return wallNeighbors >= 3;
 }
 
 // picks a qualifying frontier tile (see isFrontierDropCandidate) that is also
