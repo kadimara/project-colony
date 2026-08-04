@@ -547,7 +547,7 @@ function isThroughCorridorTile(
 // stay open, even where it's only a frontier tile *today* — a tile mid-tunnel
 // can still look like a dead end here if the far side hasn't been dug yet, but
 // placing a wall on any trail tile would sooner or later reseal the passage
-// once digging continues past it), borders at least one wall, and isn't a
+// once digging continues past it), borders at least two walls, and isn't a
 // mere pass-through point in a corridor. Shared by findFrontierDropSite and
 // the F12 debug overlay so both agree on what counts as a valid drop site.
 export function isFrontierDropCandidate(
@@ -557,12 +557,12 @@ export function isFrontierDropCandidate(
 ): boolean {
   if (!walkable(state, x, y) || foodAt(state, x, y)) return false;
   if (state.scentTrail.has(x + ',' + y)) return false;
-  const bordersWall =
-    isWall(state, x + 1, y) ||
-    isWall(state, x - 1, y) ||
-    isWall(state, x, y + 1) ||
-    isWall(state, x, y - 1);
-  if (!bordersWall || isThroughCorridorTile(state, x, y)) return false;
+  const wallNeighbors =
+    (isWall(state, x + 1, y) ? 1 : 0) +
+    (isWall(state, x - 1, y) ? 1 : 0) +
+    (isWall(state, x, y + 1) ? 1 : 0) +
+    (isWall(state, x, y - 1) ? 1 : 0);
+  if (wallNeighbors < 2 || isThroughCorridorTile(state, x, y)) return false;
   return true;
 }
 
