@@ -31,6 +31,7 @@ import {
   effectiveNestFoodRadius,
   findFrontierDropSite,
   foodAt,
+  isFrontierDropCandidate,
   nearestDiggableWallNearNest,
   nearestFoodTo,
   nearestFoodViaTrail,
@@ -154,9 +155,9 @@ const carryingWallBranch: BTNode<WorkerCtx> = sequence(
     }
     const d = colonist.dropTarget;
     if (isAdjacent(colonist.tileX, colonist.tileY, d.x, d.y)) {
-      if (!walkable(d.x, d.y) || foodAt(state, d.x, d.y)) {
-        // site got blocked between selection and arrival — keep carrying,
-        // pick a fresh site next tick instead of losing the block
+      if (!isFrontierDropCandidate(state, d.x, d.y)) {
+        // site stopped qualifying between selection and arrival — keep
+        // carrying, pick a fresh site next tick instead of losing the block
         colonist.dropTarget = null;
         colonist.path = [];
         return;
