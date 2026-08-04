@@ -384,11 +384,24 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
   // every tick and strand findingWallBranch without a turn to ever pursue it
   if (colonist.wallTarget) return 'failure';
 
-  // no target: only look for one while near the nest
+  // no target: only look for one while near the nest — unless there's a
+  // trail wall right where the worker already is (e.g. just dropped a dug
+  // block at a frontier site), in which case let findingWallBranch grab it
+  // instead of marching all the way back to the nest for nothing
   const nearNest =
     nestDistance(state, colonist.tileX, colonist.tileY) <=
     effectiveNestFoodRadius(state);
   if (!nearNest) {
+    if (
+      nearestTrailWall(
+        state,
+        colonist.tileX,
+        colonist.tileY,
+        claimedWallTargets(state, colonist),
+      )
+    ) {
+      return 'failure';
+    }
     stepTowardNest(ctx);
     return;
   }
