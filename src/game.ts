@@ -17,6 +17,7 @@ import {
   obstacleAt,
   pruneScentTrail,
   regenerateWorld,
+  resolveTargetBids,
   walkable as stateWalkable,
 } from './state/state';
 import {
@@ -314,6 +315,7 @@ export function initColonyGame(): void {
       updateEnemy(state, hud, enemy, now, walkableFn);
     for (const colonist of state.colonists)
       updateColonist(state, hud, colonist, now, walkableFn);
+    resolveTargetBids(state);
     updateNest(state, hud, now);
     pruneScentTrail(state, now);
 
