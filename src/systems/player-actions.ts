@@ -24,6 +24,7 @@ import {
   isEnemyAt,
   isNestAt,
   isWall,
+  removeScentTrailForFood,
   scoutCost,
   setWall,
   spawnFloatingText,
@@ -170,6 +171,7 @@ export function doPickup(
     const idx = state.foodItems.findIndex((f) => f.x === x && f.y === y);
     if (idx === -1) return;
     state.foodItems.splice(idx, 1);
+    removeScentTrailForFood(state, x, y);
   }
   player.carryingType = kind;
   spawnFloatingText(

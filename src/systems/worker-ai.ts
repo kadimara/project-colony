@@ -42,6 +42,7 @@ import {
   nestDistance,
   placeFoodNear,
   randomOpenTileNear,
+  removeScentTrailForFood,
   setWall,
   spawnFloatingText,
   triggerAlarm,
@@ -343,6 +344,7 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
       if (idx !== -1) {
         state.foodItems.splice(idx, 1);
         colonist.carrying = 'food';
+        removeScentTrailForFood(state, f.x, f.y);
       }
       colonist.forageTarget = null;
       colonist.path = [];

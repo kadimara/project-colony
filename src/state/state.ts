@@ -22,7 +22,6 @@ import {
   NEST_FOOD_RADIUS,
   NEST_FOOD_RADIUS_PER_LEVEL,
   PLAYER_MAX_HP,
-  SCENT_TRAIL_LIFETIME_MS,
   SCOUT_DIG_COST,
   SPAWN_X,
   SPAWN_Y,
@@ -306,23 +305,37 @@ export function triggerAlarm(
   state.scentTrailType.set(key, 'alarm');
 }
 
-// drop any trail tile that hasn't been (re-)walked within its lifetime —
-// called once per frame regardless of whether any scout is currently active.
-// alarm tiles use a much shorter lifetime than food tiles (see
-// ALARM_SCENT_LIFETIME_MS) so a stale danger signal doesn't keep pulling
-// soldiers toward a long-gone threat.
+// drop any *alarm* trail tile that hasn't been (re-)walked within its
+// lifetime — called once per frame regardless of whether any scout is
+// currently active. Food trails no longer decay by time; they're only
+// cleared via removeScentTrailForFood once their food is picked up.
 export function pruneScentTrail(state: GameState, now: number): void {
   for (const [key, laidAt] of state.scentTrail) {
+    if (state.scentTrailType.get(key) !== 'alarm') continue;
     // pinned: a wall currently sits on this trail tile and still needs
     // digging (see setWall) — don't let it decay until that wall is cleared,
     // at which point the key leaves trailWallsToDig and the pin lifts
     // naturally
     if (state.trailWallsToDig.has(key)) continue;
-    const lifetime =
-      state.scentTrailType.get(key) === 'alarm'
-        ? ALARM_SCENT_LIFETIME_MS
-        : SCENT_TRAIL_LIFETIME_MS;
-    if (now - laidAt > lifetime) {
+    if (now - laidAt > ALARM_SCENT_LIFETIME_MS) {
+      state.scentTrail.delete(key);
+      state.scentTrailSource.delete(key);
+      state.scentTrailType.delete(key);
+    }
+  }
+}
+
+// called when a food item is picked up: clears every trail tile that reports
+// this food's position as one of its origins, leaving trails to any other
+// food untouched. This is now the only way a food-type trail tile goes away.
+export function removeScentTrailForFood(
+  state: GameState,
+  x: number,
+  y: number,
+): void {
+  for (const key of state.scentTrail.keys()) {
+    const origins = state.scentTrailSource.get(key);
+    if (origins && origins.some((o) => o.x === x && o.y === y)) {
       state.scentTrail.delete(key);
       state.scentTrailSource.delete(key);
       state.scentTrailType.delete(key);
