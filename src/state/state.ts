@@ -26,6 +26,7 @@ import {
   SCOUT_DIG_COST,
   SPAWN_X,
   SPAWN_Y,
+  TARGET_HANDOFF_RATIO,
   TILE,
 } from '../constants';
 import { buildMap, buildWalls, mulberry32 } from '../worldgen/worldgen';
@@ -431,17 +432,59 @@ export function nearestFoodViaTrail(
 // every other live colonist's currently-claimed forage target (worker or
 // scout — both use forageTarget), keyed "x,y" — lets a target-picking query
 // skip food someone else is already en route to instead of every idle
-// colonist converging on the single globally-nearest item
+// colonist converging on the single globally-nearest item. When called with
+// the searching colonist itself, a target claimed by another *worker* is
+// left out of the exclude set (i.e. treated as fair game, same as an
+// unclaimed one) if that worker is close enough to take it over — see
+// TARGET_HANDOFF_RATIO — so the closest worker always ends up the one
+// pursuing it. Scout claims are never handed off this way.
 export function claimedForageTargets(
   state: GameState,
-  exceptColonist?: Colonist,
+  colonist?: Colonist,
 ): Set<string> {
   const claimed = new Set<string>();
   for (const c of state.colonists) {
-    if (c === exceptColonist || !c.forageTarget || c.hp <= 0) continue;
+    if (c === colonist || !c.forageTarget || c.hp <= 0) continue;
+    if (colonist && c.caste === 'worker') {
+      const theirDist = Math.hypot(
+        c.tileX - c.forageTarget.x,
+        c.tileY - c.forageTarget.y,
+      );
+      const myDist = Math.hypot(
+        colonist.tileX - c.forageTarget.x,
+        colonist.tileY - c.forageTarget.y,
+      );
+      if (myDist < theirDist * TARGET_HANDOFF_RATIO) continue;
+    }
     claimed.add(c.forageTarget.x + ',' + c.forageTarget.y);
   }
   return claimed;
+}
+
+// clears whichever other live worker currently has `target` claimed as its
+// forageTarget (if any) — called once a closer worker has actually committed
+// to that same target, so the previous claimant goes idle and re-picks its
+// own next-closest target on its next tick instead of continuing to trudge
+// toward one someone closer just took over
+export function releaseForageTarget(
+  state: GameState,
+  target: FoodItem,
+  exceptColonist: Colonist,
+): void {
+  for (const c of state.colonists) {
+    if (
+      c === exceptColonist ||
+      c.caste !== 'worker' ||
+      !c.forageTarget ||
+      c.hp <= 0
+    )
+      continue;
+    if (c.forageTarget.x === target.x && c.forageTarget.y === target.y) {
+      c.forageTarget = null;
+      c.path = [];
+      return;
+    }
+  }
 }
 
 // places a food item at (tx,ty), falling back to a neighboring open tile if
@@ -726,17 +769,48 @@ export function nearestDiggableWallNearNest(
 
 // every other live colonist's currently-claimed wallTarget, keyed "x,y" —
 // mirrors claimedForageTargets so two colonists never converge on digging
-// the exact same wall.
+// the exact same wall. Same handoff rule as claimedForageTargets: a wall
+// claimed by another worker is left out of the exclude set (fair game) if
+// the searching worker is close enough to take it over — see
+// TARGET_HANDOFF_RATIO. wallTarget is worker-only, so no caste check needed.
 export function claimedWallTargets(
   state: GameState,
-  exceptColonist?: Colonist,
+  colonist?: Colonist,
 ): Set<string> {
   const claimed = new Set<string>();
   for (const c of state.colonists) {
-    if (c === exceptColonist || !c.wallTarget || c.hp <= 0) continue;
+    if (c === colonist || !c.wallTarget || c.hp <= 0) continue;
+    if (colonist) {
+      const theirDist = Math.hypot(
+        c.tileX - c.wallTarget.x,
+        c.tileY - c.wallTarget.y,
+      );
+      const myDist = Math.hypot(
+        colonist.tileX - c.wallTarget.x,
+        colonist.tileY - c.wallTarget.y,
+      );
+      if (myDist < theirDist * TARGET_HANDOFF_RATIO) continue;
+    }
     claimed.add(c.wallTarget.x + ',' + c.wallTarget.y);
   }
   return claimed;
+}
+
+// clears whichever other live worker currently has `target` claimed as its
+// wallTarget (if any) — mirrors releaseForageTarget for wall-dig errands
+export function releaseWallTarget(
+  state: GameState,
+  target: Point,
+  exceptColonist: Colonist,
+): void {
+  for (const c of state.colonists) {
+    if (c === exceptColonist || !c.wallTarget || c.hp <= 0) continue;
+    if (c.wallTarget.x === target.x && c.wallTarget.y === target.y) {
+      c.wallTarget = null;
+      c.path = [];
+      return;
+    }
+  }
 }
 
 // dev shortcut (right-click a food tile in game.ts): lays a synthetic scent

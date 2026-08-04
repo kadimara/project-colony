@@ -42,6 +42,8 @@ import {
   nestDistance,
   placeFoodNear,
   randomOpenTileNear,
+  releaseForageTarget,
+  releaseWallTarget,
   setWall,
   spawnFloatingText,
   triggerAlarm,
@@ -404,6 +406,7 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
     claimed,
   );
   if (trailFood) {
+    releaseForageTarget(state, trailFood, colonist);
     colonist.forageTarget = trailFood;
     return;
   }
@@ -424,6 +427,7 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
     claimed,
   );
   if (sightFood) {
+    releaseForageTarget(state, sightFood, colonist);
     colonist.forageTarget = sightFood;
     return;
   }
@@ -452,6 +456,7 @@ const findingWallBranch: BTNode<WorkerCtx> = action(
         claimedWallTargets(state, colonist),
       );
       if (!colonist.wallTarget) return 'failure'; // no trail wall — fall through to nestBranch
+      releaseWallTarget(state, colonist.wallTarget, colonist);
       return; // commit — pursuit starts next tick
     }
     const wall = colonist.wallTarget;
@@ -527,6 +532,8 @@ const nestBranch: BTNode<WorkerCtx> = action((ctx) => {
     state,
     claimedWallTargets(state, colonist),
   );
+  if (colonist.wallTarget)
+    releaseWallTarget(state, colonist.wallTarget, colonist);
 });
 
 const workerTree: BTNode<WorkerCtx> = sequence(
