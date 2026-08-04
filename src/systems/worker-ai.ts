@@ -21,8 +21,11 @@ import type { Colonist, FoodItem, GameState, HudRefs } from '../types/types';
 import {
   COLONIST_FORAGE_RADIUS,
   COLONIST_MOVE_DUR,
+  COLONIST_WANDER_MAX_MS,
+  COLONIST_WANDER_MIN_MS,
   SCOUT_DIG_MOVE_DUR,
   WORKER_FRONTIER_SEARCH_RADIUS,
+  WORKER_WANDER_RADIUS,
 } from '../constants';
 import {
   claimedForageTargets,
@@ -31,6 +34,7 @@ import {
   effectiveNestFoodRadius,
   findFrontierDropSite,
   foodAt,
+  isFrontierDropCandidate,
   nearestDiggableWallNearNest,
   nearestFoodTo,
   nearestFoodViaTrail,
@@ -43,6 +47,7 @@ import {
   triggerAlarm,
   updateScent,
   walkable as stateWalkable,
+  walkableIgnoringActors,
 } from '../state/state';
 import { dirBetween, startStep } from '../entities/entities';
 import {
@@ -94,6 +99,41 @@ function stepTowardNest({ state, colonist, walkable }: WorkerCtx): void {
   }
 }
 
+// wander to a small random nearby spot — used by carryingWallBranch while no
+// frontier drop site qualifies, so the worker doesn't sit frozen mid-tunnel
+// blocking every other worker while it keeps searching. Cooldown-gated the
+// same way as the enemy/soldier wander behaviors (see ai.ts/soldier-ai.ts)
+// so it doesn't replan a path every single tick.
+function wanderStep({ state, colonist, now, walkable }: WorkerCtx): void {
+  if (now >= colonist.nextWanderAt && colonist.path.length === 0) {
+    const spot = randomOpenTileNear(
+      state,
+      colonist.tileX,
+      colonist.tileY,
+      WORKER_WANDER_RADIUS,
+    );
+    const p = spot
+      ? findPath(colonist.tileX, colonist.tileY, spot.x, spot.y, walkable)
+      : [];
+    if (p.length) colonist.path = p;
+    colonist.nextWanderAt =
+      now +
+      COLONIST_WANDER_MIN_MS +
+      Math.random() * (COLONIST_WANDER_MAX_MS - COLONIST_WANDER_MIN_MS);
+  }
+  if (colonist.path.length) {
+    const next = colonist.path.shift()!;
+    if (walkable(next.x, next.y))
+      startStep(
+        colonist,
+        next.x,
+        next.y,
+        dirBetween(colonist.tileX, colonist.tileY, next.x, next.y),
+      );
+    else colonist.path = [];
+  }
+}
+
 // consumes the attack interrupt: drop whatever's held, clear errand targets,
 // and lay an alarm trail — always runs first, unconditionally, each tick
 const handleAttackFlag: BTNode<WorkerCtx> = action(
@@ -128,7 +168,8 @@ const fleeBranch: BTNode<WorkerCtx> = sequence(
 // there — relocating the block outward instead of resealing the hole
 const carryingWallBranch: BTNode<WorkerCtx> = sequence(
   condition(({ colonist }) => colonist.carrying === 'obstacle'),
-  action(({ state, colonist, walkable }) => {
+  action((ctx) => {
+    const { state, colonist, walkable } = ctx;
     if (!colonist.dropTarget) {
       colonist.dropTarget =
         findFrontierDropSite(
@@ -149,14 +190,20 @@ const carryingWallBranch: BTNode<WorkerCtx> = sequence(
           colonist.tileY,
           WORKER_FRONTIER_SEARCH_RADIUS * 4,
         );
+      if (!colonist.dropTarget) {
+        // nothing qualifies right now — wander instead of freezing in place
+        // (which would just block the tunnel for everyone else) and retry
+        // the search again next tick from wherever that leaves it
+        wanderStep(ctx);
+        return;
+      }
       colonist.path = [];
-      if (!colonist.dropTarget) return; // nothing qualified this tick — try again next tick
     }
     const d = colonist.dropTarget;
     if (isAdjacent(colonist.tileX, colonist.tileY, d.x, d.y)) {
-      if (!walkable(d.x, d.y) || foodAt(state, d.x, d.y)) {
-        // site got blocked between selection and arrival — keep carrying,
-        // pick a fresh site next tick instead of losing the block
+      if (!isFrontierDropCandidate(state, d.x, d.y)) {
+        // site stopped qualifying between selection and arrival — keep
+        // carrying, pick a fresh site next tick instead of losing the block
         colonist.dropTarget = null;
         colonist.path = [];
         return;
@@ -440,7 +487,19 @@ const findingWallBranch: BTNode<WorkerCtx> = action(
         walkable,
       );
       if (colonist.path.length === 0) {
-        state.unreachableWalls.add(wall.x + ',' + wall.y);
+        // only actors (colonists/enemies/player) are in the way — that's a
+        // traffic jam, not a real dead end, so leave it off unreachableWalls
+        // and let it get re-picked once the jam clears
+        const structurallyBlocked =
+          bfsToAdjacent(
+            colonist.tileX,
+            colonist.tileY,
+            wall.x,
+            wall.y,
+            (x, y) => walkableIgnoringActors(state, x, y),
+          ).length === 0;
+        if (structurallyBlocked)
+          state.unreachableWalls.add(wall.x + ',' + wall.y);
         colonist.wallTarget = null;
         return;
       }

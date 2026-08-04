@@ -110,10 +110,16 @@ export const COLONIST_REPATH_MS = 500;
 export const SOLDIER_PATROL_RADIUS = 6; // how far from the nest a patrolling soldier wanders
 export const SOLDIER_ALERT_SCENT_RADIUS = 12; // scan range for detecting an alarm-tagged trail tile
 
-// how far out to scan when a worker looks for a frontier tile (open ground
-// bordering a wall) to relocate a dug-up obstacle block to — same bounded-
-// random-sample style as the other *_RADIUS search constants
+// how far out to flood-fill when a worker looks for a frontier tile (open
+// ground bordering a wall) to relocate a dug-up obstacle block to — see
+// findFrontierDropSite
 export const WORKER_FRONTIER_SEARCH_RADIUS = 10;
+
+// how far a worker carrying a wall block wanders while no frontier drop site
+// is found, so it doesn't sit frozen in the middle of a tunnel blocking
+// everyone else — deliberately tighter than SOLDIER_PATROL_RADIUS since this
+// is just "get out of the way," not an actual patrol
+export const WORKER_WANDER_RADIUS = 3;
 
 // ---- scouts: roam far from the nest, detour toward any food that comes
 // within COLONIST_FORAGE_RADIUS, then commit to a straight shot back to the
