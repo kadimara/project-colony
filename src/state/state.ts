@@ -181,6 +181,25 @@ export function walkable(state: GameState, x: number, y: number): boolean {
   );
 }
 
+// like walkable, but ignores mobile actors (colonists/enemies/player) —
+// only terrain, walls, and the nest itself make a tile impassable. Used to
+// tell "structurally walled off" apart from "just someone standing in the
+// way right now" before permanently blacklisting a target into
+// unreachableWalls: a route that only fails the actor-aware walkable check
+// is a traffic jam, not a real dead end, and should be retried rather than
+// blacklisted.
+export function walkableIgnoringActors(
+  state: GameState,
+  x: number,
+  y: number,
+): boolean {
+  return (
+    terrainWalkable(state, x, y) &&
+    !isWall(state, x, y) &&
+    !isNestAt(state, x, y)
+  );
+}
+
 // cost for a scout (player or colonist) to enter (x,y): open ground is
 // cheap, a wall tile can be tunneled through at a steep price, anything
 // else (bounds/nest/an entity) stays impassable — a weighted pathfinder
@@ -573,10 +592,13 @@ export function isFrontierDropCandidate(
 // farther from the nest than (originX,originY) — used when a worker needs to
 // relocate a dug-up obstacle block "outward," away from the colony, instead
 // of just resealing the hole it came from or blocking the passage it's part
-// of. Same bounded random-sample-then-filter shape as randomOpenTileNear, but
-// scans around the dig site rather than the nest, and keeps the farthest-out
-// candidate found within the try budget so it drifts genuinely outward
-// rather than stopping at the very next qualifying tile.
+// of. Flood-fills outward from the origin over already-walkable tiles only
+// (bounded to a `radius`-tile box), so it never wastes effort probing wall
+// tiles the way blind random sampling did, and — since it only ever steps
+// onto walkable ground — every candidate it finds is guaranteed reachable by
+// foot, unlike a random (x,y) pick that might sit behind an undug wall.
+// Keeps the farthest-out qualifying tile found so the block drifts genuinely
+// outward rather than settling for the first one seen.
 export function findFrontierDropSite(
   state: GameState,
   originX: number,
@@ -584,17 +606,40 @@ export function findFrontierDropSite(
   radius: number,
 ): Point | null {
   const originDist = nestDistance(state, originX, originY);
+  const key = (x: number, y: number) => x + ',' + y;
+  const visited = new Set<string>([key(originX, originY)]);
+  const queue: Point[] = [{ x: originX, y: originY }];
+  let head = 0;
+  const dirs = [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+  ];
   let best: Point | null = null,
     bestDist = -Infinity;
-  for (let tries = 0; tries < 60; tries++) {
-    const x = originX + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
-    const y = originY + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
-    if (!isFrontierDropCandidate(state, x, y)) continue;
-    const d = nestDistance(state, x, y);
-    if (d <= originDist) continue;
-    if (d > bestDist) {
-      best = { x, y };
-      bestDist = d;
+  while (head < queue.length) {
+    const cur = queue[head++];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx,
+        ny = cur.y + dy,
+        k = key(nx, ny);
+      if (
+        visited.has(k) ||
+        Math.abs(nx - originX) > radius ||
+        Math.abs(ny - originY) > radius ||
+        !walkable(state, nx, ny)
+      )
+        continue;
+      visited.add(k);
+      queue.push({ x: nx, y: ny });
+      if (isFrontierDropCandidate(state, nx, ny)) {
+        const d = nestDistance(state, nx, ny);
+        if (d > originDist && d > bestDist) {
+          best = { x: nx, y: ny };
+          bestDist = d;
+        }
+      }
     }
   }
   return best;
