@@ -406,7 +406,14 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
     claimed,
   );
   if (trailFood) {
-    colonist.forageTarget = trailFood;
+    state.pendingForageBids.push({
+      colonist,
+      target: trailFood,
+      dist: Math.hypot(
+        trailFood.x - colonist.tileX,
+        trailFood.y - colonist.tileY,
+      ),
+    });
     return;
   }
 
@@ -426,7 +433,14 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
     claimed,
   );
   if (sightFood) {
-    colonist.forageTarget = sightFood;
+    state.pendingForageBids.push({
+      colonist,
+      target: sightFood,
+      dist: Math.hypot(
+        sightFood.x - colonist.tileX,
+        sightFood.y - colonist.tileY,
+      ),
+    });
     return;
   }
 
@@ -447,14 +461,19 @@ const findingFoodBranch: BTNode<WorkerCtx> = action((ctx) => {
 const findingWallBranch: BTNode<WorkerCtx> = action(
   ({ state, colonist, walkable, now }) => {
     if (!colonist.wallTarget) {
-      colonist.wallTarget = nearestTrailWall(
+      const wall = nearestTrailWall(
         state,
         colonist.tileX,
         colonist.tileY,
         claimedWallTargets(state, colonist),
       );
-      if (!colonist.wallTarget) return 'failure'; // no trail wall — fall through to nestBranch
-      return; // commit — pursuit starts next tick
+      if (!wall) return 'failure'; // no trail wall — fall through to nestBranch
+      state.pendingWallBids.push({
+        colonist,
+        target: wall,
+        dist: Math.hypot(wall.x - colonist.tileX, wall.y - colonist.tileY),
+      });
+      return; // bid submitted — resolution (and pursuit) starts next tick
     }
     const wall = colonist.wallTarget;
 
@@ -525,10 +544,17 @@ const nestBranch: BTNode<WorkerCtx> = action((ctx) => {
     stepTowardNest(ctx);
     return;
   }
-  colonist.wallTarget = nearestDiggableWallNearNest(
+  const wall = nearestDiggableWallNearNest(
     state,
     claimedWallTargets(state, colonist),
   );
+  if (wall) {
+    state.pendingWallBids.push({
+      colonist,
+      target: wall,
+      dist: Math.hypot(wall.x - colonist.tileX, wall.y - colonist.tileY),
+    });
+  }
 });
 
 const workerTree: BTNode<WorkerCtx> = sequence(

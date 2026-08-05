@@ -19,6 +19,23 @@ export interface Point {
 
 export type FoodItem = Point;
 
+// a worker's request to claim a target for the tick it's submitted on —
+// queued instead of committed immediately so contested targets can be
+// resolved by lowest distance once every idle worker has had a chance to
+// bid, rather than by whichever worker happened to run first in the update
+// loop (see resolveTargetBids in state.ts)
+export interface ForageBid {
+  colonist: Colonist;
+  target: FoodItem;
+  dist: number;
+}
+
+export interface WallBid {
+  colonist: Colonist;
+  target: Point;
+  dist: number;
+}
+
 export interface CasteDef {
   name: string;
   color: string;
@@ -198,6 +215,10 @@ export interface GameState {
   scentTrailSource: Map<string, Point[]>;
   scentTrailType: Map<string, ScentType>;
   floatingTexts: FloatingText[];
+  // bids submitted this tick by idle workers, resolved (and cleared) once
+  // per tick by resolveTargetBids — see ForageBid/WallBid
+  pendingForageBids: ForageBid[];
+  pendingWallBids: WallBid[];
 
   zoomIndex: number;
   VP_W: number;

@@ -782,6 +782,51 @@ export function claimedWallTargets(
   return claimed;
 }
 
+// groups a tick's worth of bids by target, awards each contested target to
+// its lowest-distance bidder, and drains the queue — losing bidders are
+// simply left uncommitted so they bid again (possibly for a different
+// target) next tick
+function resolveBids<T>(
+  bids: { colonist: Colonist; target: T; dist: number }[],
+  keyOf: (t: T) => string,
+  assign: (c: Colonist, t: T) => void,
+): void {
+  const byKey = new Map<string, (typeof bids)[number][]>();
+  for (const b of bids) {
+    const k = keyOf(b.target);
+    let group = byKey.get(k);
+    if (!group) byKey.set(k, (group = []));
+    group.push(b);
+  }
+  for (const group of byKey.values()) {
+    let winner = group[0];
+    for (const b of group) if (b.dist < winner.dist) winner = b;
+    assign(winner.colonist, winner.target);
+  }
+  bids.length = 0;
+}
+
+// resolves this tick's forage/wall bid queues, called once per tick after
+// every idle worker has had a chance to submit one — see
+// pendingForageBids/pendingWallBids and findingFoodBranch/findingWallBranch/
+// nestBranch in worker-ai.ts, which push bids instead of claiming instantly
+export function resolveTargetBids(state: GameState): void {
+  resolveBids<FoodItem>(
+    state.pendingForageBids,
+    (f) => f.x + ',' + f.y,
+    (c, f) => {
+      c.forageTarget = f;
+    },
+  );
+  resolveBids<Point>(
+    state.pendingWallBids,
+    (p) => p.x + ',' + p.y,
+    (c, p) => {
+      c.wallTarget = p;
+    },
+  );
+}
+
 // dev shortcut (right-click a food tile in game.ts): lays a synthetic scent
 // trail from the nest to that food along the same tunnel-capable weighted
 // route a scout actually walks (see scoutCost/findWeightedPath), exactly as
@@ -949,6 +994,8 @@ export function createGameState(
     scentTrail: new Map(),
     scentTrailSource: new Map(),
     scentTrailType: new Map(),
+    pendingForageBids: [],
+    pendingWallBids: [],
     floatingTexts: [],
     zoomIndex: 0,
     VP_W: 0,
