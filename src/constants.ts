@@ -86,9 +86,16 @@ export const MAX_COLONISTS = 30;
 // NEST_SIZE x NEST_SIZE footprint) = colonists.length * NEST_TOTAL_TILES_PER_COLONIST,
 // floored so population 0 still has NEST_FREE_TILES_FLOOR free tiles (a
 // literal 0 would be a soft-lock — nest tiles are unwalkable, so no food
-// could ever sit at exactly distance 0)
+// could ever sit at exactly distance 0). Also hard-floored at
+// NEST_FOOD_RADIUS_MIN tiles regardless of tile count: several AI paths
+// (e.g. carryingFoodBranch's walk-home target in worker-ai.ts) search a
+// (radius-1)-tile box around the nest's corner for a walkable tile, which
+// is empty whenever radius rounds below 2 — the only candidate left is the
+// nest's own (unwalkable) corner tile itself, silently stranding any worker
+// carrying food.
 export const NEST_TOTAL_TILES_PER_COLONIST = 3;
 export const NEST_FREE_TILES_FLOOR = 8;
+export const NEST_FOOD_RADIUS_MIN = 2;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
 export const COLONIST_MAX_HP: Record<CasteKey, number> = {

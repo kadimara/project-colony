@@ -19,6 +19,7 @@ import {
   INITIAL_SEED,
   MAP_H,
   MAP_W,
+  NEST_FOOD_RADIUS_MIN,
   NEST_FREE_TILES_FLOOR,
   NEST_SIZE,
   NEST_TOTAL_TILES_PER_COLONIST,
@@ -206,7 +207,7 @@ export function effectiveNestFoodRadius(state: GameState): number {
       NEST_FREE_TILES_FLOOR,
       totalTarget - NEST_SIZE * NEST_SIZE,
     );
-    radius = radiusForFreeTiles(freeTarget);
+    radius = Math.max(NEST_FOOD_RADIUS_MIN, radiusForFreeTiles(freeTarget));
     nestRadiusByPopulation.set(pop, radius);
   }
   return radius;
@@ -454,9 +455,15 @@ export function randomOpenTileNear(
   cy: number,
   radius: number,
 ): Point | null {
+  // callers may pass a fractional radius (e.g. derived from
+  // effectiveNestFoodRadius) — floor it so the generated offset always lands
+  // on a whole tile. A fractional target can never be reached by grid-based
+  // pathfinding (findPath/bfsToAdjacent only ever step by whole tiles), so
+  // leaving it fractional would make every path to it silently fail.
+  const r = Math.max(0, Math.floor(radius));
   for (let tries = 0; tries < 40; tries++) {
-    const x = cx + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
-    const y = cy + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const x = cx + Math.floor(Math.random() * (r * 2 + 1)) - r;
+    const y = cy + Math.floor(Math.random() * (r * 2 + 1)) - r;
     if (walkable(state, x, y) && !foodAt(state, x, y)) return { x, y };
   }
   return null;
