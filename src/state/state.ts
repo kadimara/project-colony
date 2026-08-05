@@ -207,7 +207,12 @@ export function effectiveNestFoodRadius(state: GameState): number {
       NEST_FREE_TILES_FLOOR,
       totalTarget - NEST_SIZE * NEST_SIZE,
     );
-    radius = Math.max(NEST_FOOD_RADIUS_MIN, radiusForFreeTiles(freeTarget));
+    // ceiled to a whole tile — every consumer (pathfinding, rendering) works
+    // in integer tile coordinates, and a fractional radius silently breaks
+    // both (see randomOpenTileNear and the nest-radius overlay in render.ts)
+    radius = Math.ceil(
+      Math.max(NEST_FOOD_RADIUS_MIN, radiusForFreeTiles(freeTarget)),
+    );
     nestRadiusByPopulation.set(pop, radius);
   }
   return radius;
