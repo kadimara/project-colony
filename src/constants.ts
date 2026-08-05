@@ -82,9 +82,12 @@ export const MAX_COLONISTS = 30;
 // the food radius scales with colony size (see effectiveNestFoodRadius):
 // a floor of NEST_FOOD_RADIUS_MIN tiles at population 0 (a literal 0 would
 // be a soft-lock — nest tiles are unwalkable, so no food could ever sit at
-// exactly distance 0), scaling up to NEST_FOOD_RADIUS_MAX at MAX_COLONISTS
+// exactly distance 0), scaling up to NEST_FOOD_RADIUS_MAX once population
+// hits NEST_FOOD_RADIUS_FULL_AT_POP (below MAX_COLONISTS — the radius caps
+// out before the colony does)
 export const NEST_FOOD_RADIUS_MIN = 2;
 export const NEST_FOOD_RADIUS_MAX = 10;
+export const NEST_FOOD_RADIUS_FULL_AT_POP = 20;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
 export const COLONIST_MAX_HP: Record<CasteKey, number> = {

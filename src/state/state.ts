@@ -19,7 +19,7 @@ import {
   INITIAL_SEED,
   MAP_H,
   MAP_W,
-  MAX_COLONISTS,
+  NEST_FOOD_RADIUS_FULL_AT_POP,
   NEST_FOOD_RADIUS_MAX,
   NEST_FOOD_RADIUS_MIN,
   PLAYER_MAX_HP,
@@ -130,11 +130,16 @@ export function nestDistance(state: GameState, x: number, y: number): number {
 
 // the nest's food-catchment radius scales with colony size: a floor of
 // NEST_FOOD_RADIUS_MIN tiles at population 0, growing to NEST_FOOD_RADIUS_MAX
-// at MAX_COLONISTS. Growing the colony visibly pays off in reach.
+// once population reaches NEST_FOOD_RADIUS_FULL_AT_POP. Growing the colony
+// visibly pays off in reach.
 export function effectiveNestFoodRadius(state: GameState): number {
-  return Math.max(
-    NEST_FOOD_RADIUS_MIN,
-    (state.colonists.length / MAX_COLONISTS) * NEST_FOOD_RADIUS_MAX,
+  return Math.min(
+    NEST_FOOD_RADIUS_MAX,
+    Math.max(
+      NEST_FOOD_RADIUS_MIN,
+      (state.colonists.length / NEST_FOOD_RADIUS_FULL_AT_POP) *
+        NEST_FOOD_RADIUS_MAX,
+    ),
   );
 }
 
