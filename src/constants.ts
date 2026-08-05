@@ -73,17 +73,18 @@ export const ENEMY_REPATH_MS = 500;
 export const ENEMY_SPAWN_MIN_DIST = 10; // keep initial spawns away from the player's start
 
 // ---- nest: fixed 2x2 structure. Player manually spawns ants here,
-// consuming food that must be sitting within NEST_FOOD_RADIUS tiles ----
+// consuming food that must be sitting within effectiveNestFoodRadius tiles ----
 export const NEST_SIZE = 2;
-export const NEST_FOOD_RADIUS = 3; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
 export const NEST_FOOD_COST = 1; // 1 ant costs 1 food, consumed from the radius
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
-export const MAX_COLONISTS = 15;
+export const MAX_COLONISTS = 30;
 
-// nest.level currently never advances (nothing credits it since workers
-// stopped doing long-range expansion digging) — effectiveNestFoodRadius
-// keeps this per-level formula anyway since it's harmless at level 0
-export const NEST_FOOD_RADIUS_PER_LEVEL = 3;
+// the food radius scales with colony size (see effectiveNestFoodRadius):
+// a floor of NEST_FOOD_RADIUS_MIN tiles at population 0 (a literal 0 would
+// be a soft-lock — nest tiles are unwalkable, so no food could ever sit at
+// exactly distance 0), scaling up to NEST_FOOD_RADIUS_MAX at MAX_COLONISTS
+export const NEST_FOOD_RADIUS_MIN = 2;
+export const NEST_FOOD_RADIUS_MAX = 10;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
 export const COLONIST_MAX_HP: Record<CasteKey, number> = {

@@ -19,8 +19,9 @@ import {
   INITIAL_SEED,
   MAP_H,
   MAP_W,
-  NEST_FOOD_RADIUS,
-  NEST_FOOD_RADIUS_PER_LEVEL,
+  MAX_COLONISTS,
+  NEST_FOOD_RADIUS_MAX,
+  NEST_FOOD_RADIUS_MIN,
   PLAYER_MAX_HP,
   SCOUT_DIG_COST,
   SPAWN_X,
@@ -127,11 +128,14 @@ export function nestDistance(state: GameState, x: number, y: number): number {
   return best;
 }
 
-// the nest's food-catchment radius grows with its level, per idle workers
-// relocating wall tiles nearby (see findNestExpansionTarget) — NEST_FOOD_RADIUS
-// itself stays the level-0 base value
+// the nest's food-catchment radius scales with colony size: a floor of
+// NEST_FOOD_RADIUS_MIN tiles at population 0, growing to NEST_FOOD_RADIUS_MAX
+// at MAX_COLONISTS. Growing the colony visibly pays off in reach.
 export function effectiveNestFoodRadius(state: GameState): number {
-  return NEST_FOOD_RADIUS + state.nest.level * NEST_FOOD_RADIUS_PER_LEVEL;
+  return Math.max(
+    NEST_FOOD_RADIUS_MIN,
+    (state.colonists.length / MAX_COLONISTS) * NEST_FOOD_RADIUS_MAX,
+  );
 }
 
 // true if (x,y) lies within the nest's current food-catchment radius — the
@@ -151,6 +155,16 @@ export function populateWallsToDigNearNest(state: GameState): void {
     const [x, y] = key.split(',').map(Number);
     if (isNestRadiusWall(state, x, y)) state.nestWallsToDig.add(key);
   }
+}
+
+// effectiveNestFoodRadius now tracks colonists.length, which changes on
+// every spawn/death — but nestWallsToDig is event-driven (see comment on
+// GameState.nestWallsToDig), so a population change alone won't re-flag
+// walls that just entered or left the radius. Callers that change
+// colonists.length must call this afterward to keep the two in sync.
+export function refreshNestWallsToDig(state: GameState): void {
+  state.nestWallsToDig.clear();
+  populateWallsToDigNearNest(state);
 }
 
 export function countFoodNearNest(state: GameState): number {
@@ -839,8 +853,11 @@ export function regenerateWorld(
   state.nest.incubateStart = 0;
   state.nest.level = 0;
   state.nest.workProgress = 0;
-  populateWallsToDigNearNest(state);
+  // reset population before recomputing the food radius, since
+  // effectiveNestFoodRadius (and thus which walls are in-radius) now
+  // depends on colonists.length
   state.colonists.length = 0;
+  populateWallsToDigNearNest(state);
 
   state.scentTrail.clear();
   state.scentTrailSource.clear();
