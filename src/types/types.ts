@@ -199,10 +199,10 @@ export interface GameState {
   // so nearestTrailWall/nearestDiggableWallNearNest can search trail
   // walls first without a runtime scentTrail check per candidate — both are
   // always a subset of wallSet, kept in sync in setWall. A wall can appear
-  // in both. If nest.level ever starts advancing effectiveNestFoodRadius,
-  // re-run populateWallsToDigNearNest after the change since nestWallsToDig
-  // is event-driven (updated on setWall calls), not recomputed from radius
-  // each tick.
+  // in both. effectiveNestFoodRadius scales with colonists.length, so any
+  // code path that changes colonists.length must call refreshNestWallsToDig
+  // afterward — nestWallsToDig is event-driven (updated on setWall calls
+  // and by that helper), not recomputed from the radius each tick.
   nestWallsToDig: Set<string>;
   // resealed walls that coincide with a live scent-trail tile (see setWall)
   trailWallsToDig: Set<string>;

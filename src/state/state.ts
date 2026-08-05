@@ -19,8 +19,10 @@ import {
   INITIAL_SEED,
   MAP_H,
   MAP_W,
-  NEST_FOOD_RADIUS,
-  NEST_FOOD_RADIUS_PER_LEVEL,
+  NEST_FOOD_RADIUS_MIN,
+  NEST_FREE_TILES_FLOOR,
+  NEST_SIZE,
+  NEST_TOTAL_TILES_PER_COLONIST,
   PLAYER_MAX_HP,
   SCOUT_DIG_COST,
   SPAWN_X,
@@ -127,11 +129,93 @@ export function nestDistance(state: GameState, x: number, y: number): number {
   return best;
 }
 
-// the nest's food-catchment radius grows with its level, per idle workers
-// relocating wall tiles nearby (see findNestExpansionTarget) — NEST_FOOD_RADIUS
-// itself stays the level-0 base value
+// effectiveNestFoodRadius is derived from a target *tile count*, not a
+// target distance — drawNestRadius renders the food zone as a filled area,
+// and it's that visible area a player actually perceives as "the nest
+// growing", so a linear-in-population tile count (rather than a
+// linear-in-population distance) is what keeps the perceived growth linear.
+//
+// The nest's food zone is the set of tiles within some distance of its 4
+// corners (see nestCells/nestDistance) — a fixed, position-independent
+// shape. Because that shape is symmetric, tiles at equal distance come in
+// whole clusters ("rings"): only a handful of radii produce a "clean" tile
+// count, so an arbitrary target can't always be hit exactly. This table
+// precomputes, once, every reachable (radius, cumulative tile count)
+// breakpoint so a target can be matched to its nearest reachable radius.
+interface NestRadiusBreakpoint {
+  radius: number;
+  freeTiles: number; // cumulative non-nest tile count at this radius
+}
+
+const NEST_RADIUS_BREAKPOINTS: NestRadiusBreakpoint[] = (() => {
+  // relative corners of the nest's fixed 2x2 footprint — mirrors nestCells()
+  // but translation-invariant, so it can be computed once up front
+  const corners: Point[] = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+  ];
+  // generous enough to cover every reachable tile count up to MAX_COLONISTS
+  const SPAN = 20;
+  const distances: number[] = [];
+  for (let y = -SPAN; y <= SPAN + 1; y++) {
+    for (let x = -SPAN; x <= SPAN + 1; x++) {
+      if (corners.some((c) => c.x === x && c.y === y)) continue;
+      let best = Infinity;
+      for (const c of corners) {
+        const d = Math.hypot(x - c.x, y - c.y);
+        if (d < best) best = d;
+      }
+      distances.push(best);
+    }
+  }
+  distances.sort((a, b) => a - b);
+  const breakpoints: NestRadiusBreakpoint[] = [{ radius: 0, freeTiles: 0 }];
+  for (let i = 0; i < distances.length; i++) {
+    const d = distances[i];
+    const last = breakpoints[breakpoints.length - 1];
+    if (d !== last.radius) breakpoints.push({ radius: d, freeTiles: i + 1 });
+    else last.freeTiles = i + 1;
+  }
+  return breakpoints;
+})();
+
+function radiusForFreeTiles(target: number): number {
+  let best = NEST_RADIUS_BREAKPOINTS[0];
+  let bestDiff = Math.abs(best.freeTiles - target);
+  for (const bp of NEST_RADIUS_BREAKPOINTS) {
+    const diff = Math.abs(bp.freeTiles - target);
+    if (diff < bestDiff) {
+      best = bp;
+      bestDiff = diff;
+    }
+  }
+  return best.radius;
+}
+
+// population only takes MAX_COLONISTS+1 distinct values, so cache the
+// (repeated, non-trivial) breakpoint search per population count
+const nestRadiusByPopulation = new Map<number, number>();
+
 export function effectiveNestFoodRadius(state: GameState): number {
-  return NEST_FOOD_RADIUS + state.nest.level * NEST_FOOD_RADIUS_PER_LEVEL;
+  const pop = state.colonists.length;
+  let radius = nestRadiusByPopulation.get(pop);
+  if (radius === undefined) {
+    const totalTarget = pop * NEST_TOTAL_TILES_PER_COLONIST;
+    const freeTarget = Math.max(
+      NEST_FREE_TILES_FLOOR,
+      totalTarget - NEST_SIZE * NEST_SIZE,
+    );
+    // ceiled to a whole tile — every consumer (pathfinding, rendering) works
+    // in integer tile coordinates, and a fractional radius silently breaks
+    // both (see randomOpenTileNear and the nest-radius overlay in render.ts)
+    radius = Math.ceil(
+      Math.max(NEST_FOOD_RADIUS_MIN, radiusForFreeTiles(freeTarget)),
+    );
+    nestRadiusByPopulation.set(pop, radius);
+  }
+  return radius;
 }
 
 // true if (x,y) lies within the nest's current food-catchment radius — the
@@ -151,6 +235,16 @@ export function populateWallsToDigNearNest(state: GameState): void {
     const [x, y] = key.split(',').map(Number);
     if (isNestRadiusWall(state, x, y)) state.nestWallsToDig.add(key);
   }
+}
+
+// effectiveNestFoodRadius now tracks colonists.length, which changes on
+// every spawn/death — but nestWallsToDig is event-driven (see comment on
+// GameState.nestWallsToDig), so a population change alone won't re-flag
+// walls that just entered or left the radius. Callers that change
+// colonists.length must call this afterward to keep the two in sync.
+export function refreshNestWallsToDig(state: GameState): void {
+  state.nestWallsToDig.clear();
+  populateWallsToDigNearNest(state);
 }
 
 export function countFoodNearNest(state: GameState): number {
@@ -366,9 +460,15 @@ export function randomOpenTileNear(
   cy: number,
   radius: number,
 ): Point | null {
+  // callers may pass a fractional radius (e.g. derived from
+  // effectiveNestFoodRadius) — floor it so the generated offset always lands
+  // on a whole tile. A fractional target can never be reached by grid-based
+  // pathfinding (findPath/bfsToAdjacent only ever step by whole tiles), so
+  // leaving it fractional would make every path to it silently fail.
+  const r = Math.max(0, Math.floor(radius));
   for (let tries = 0; tries < 40; tries++) {
-    const x = cx + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
-    const y = cy + Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const x = cx + Math.floor(Math.random() * (r * 2 + 1)) - r;
+    const y = cy + Math.floor(Math.random() * (r * 2 + 1)) - r;
     if (walkable(state, x, y) && !foodAt(state, x, y)) return { x, y };
   }
   return null;
@@ -884,8 +984,11 @@ export function regenerateWorld(
   state.nest.incubateStart = 0;
   state.nest.level = 0;
   state.nest.workProgress = 0;
-  populateWallsToDigNearNest(state);
+  // reset population before recomputing the food radius, since
+  // effectiveNestFoodRadius (and thus which walls are in-radius) now
+  // depends on colonists.length
   state.colonists.length = 0;
+  populateWallsToDigNearNest(state);
 
   state.scentTrail.clear();
   state.scentTrailSource.clear();

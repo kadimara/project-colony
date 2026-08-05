@@ -116,7 +116,7 @@ export function render(state: GameState, now: number): void {
 
   // nest food-radius overlay (under everything else on the ground, like the scent trail)
   {
-    const radius = effectiveNestFoodRadius(state);
+    const radius = effectiveNestFoodRadius(state); // always a whole tile
     const minX = state.nest.x - radius,
       maxX = state.nest.x + NEST_SIZE - 1 + radius;
     const minY = state.nest.y - radius,

@@ -73,17 +73,29 @@ export const ENEMY_REPATH_MS = 500;
 export const ENEMY_SPAWN_MIN_DIST = 10; // keep initial spawns away from the player's start
 
 // ---- nest: fixed 2x2 structure. Player manually spawns ants here,
-// consuming food that must be sitting within NEST_FOOD_RADIUS tiles ----
+// consuming food that must be sitting within effectiveNestFoodRadius tiles ----
 export const NEST_SIZE = 2;
-export const NEST_FOOD_RADIUS = 3; // (Chebyshev/Euclidean) distance food must be within to fuel a spawn
 export const NEST_FOOD_COST = 1; // 1 ant costs 1 food, consumed from the radius
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
-export const MAX_COLONISTS = 15;
+export const MAX_COLONISTS = 30;
 
-// nest.level currently never advances (nothing credits it since workers
-// stopped doing long-range expansion digging) — effectiveNestFoodRadius
-// keeps this per-level formula anyway since it's harmless at level 0
-export const NEST_FOOD_RADIUS_PER_LEVEL = 3;
+// the food radius is derived (see effectiveNestFoodRadius) from a target
+// *tile count*, not a target distance — the rendered food zone is a filled
+// area, and a linear-in-population tile count is what keeps that area's
+// visible growth linear. Target total tiles (including the nest's own
+// NEST_SIZE x NEST_SIZE footprint) = colonists.length * NEST_TOTAL_TILES_PER_COLONIST,
+// floored so population 0 still has NEST_FREE_TILES_FLOOR free tiles (a
+// literal 0 would be a soft-lock — nest tiles are unwalkable, so no food
+// could ever sit at exactly distance 0). Also hard-floored at
+// NEST_FOOD_RADIUS_MIN tiles regardless of tile count: several AI paths
+// (e.g. carryingFoodBranch's walk-home target in worker-ai.ts) search a
+// (radius-1)-tile box around the nest's corner for a walkable tile, which
+// is empty whenever radius rounds below 2 — the only candidate left is the
+// nest's own (unwalkable) corner tile itself, silently stranding any worker
+// carrying food.
+export const NEST_TOTAL_TILES_PER_COLONIST = 3;
+export const NEST_FREE_TILES_FLOOR = 8;
+export const NEST_FOOD_RADIUS_MIN = 2;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
 export const COLONIST_MAX_HP: Record<CasteKey, number> = {

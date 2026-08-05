@@ -28,7 +28,11 @@ import {
   SPAWN_Y,
   TILE,
 } from '../constants';
-import { randomOpenTile, randomOpenTileNear } from '../state/state';
+import {
+  randomOpenTile,
+  randomOpenTileNear,
+  refreshNestWallsToDig,
+} from '../state/state';
 
 function makeEnemy(x: number, y: number): Enemy {
   return {
@@ -125,7 +129,11 @@ export function spawnColonist(state: GameState, caste: CasteKey): void {
   const spot =
     randomOpenTileNear(state, state.nest.x, state.nest.y, 4) ||
     randomOpenTile(state);
-  if (spot) state.colonists.push(makeColonist(caste, spot.x, spot.y));
+  if (spot) {
+    state.colonists.push(makeColonist(caste, spot.x, spot.y));
+    // population changed, which shifts effectiveNestFoodRadius
+    refreshNestWallsToDig(state);
+  }
 }
 
 // ---- generic actor movement primitives (shared by player/enemy/colonist) ----

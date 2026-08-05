@@ -18,6 +18,7 @@ import {
   isNestAt,
   isPlayerAt,
   isWall,
+  refreshNestWallsToDig,
   setWall,
   spawnFloatingText,
   terrainWalkable,
@@ -84,6 +85,8 @@ function killColonist(
 ): void {
   const idx = state.colonists.indexOf(colonist);
   if (idx !== -1) state.colonists.splice(idx, 1);
+  // population changed, which shifts effectiveNestFoodRadius
+  refreshNestWallsToDig(state);
   // a scout caught mid-tunnel is carrying a wall block — put it back before
   // dropping food, so food never lands on top of a now-solid wall tile
   if (colonist.digTile) {
