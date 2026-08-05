@@ -19,9 +19,9 @@ import {
   INITIAL_SEED,
   MAP_H,
   MAP_W,
-  NEST_FOOD_RADIUS_FULL_AT_POP,
-  NEST_FOOD_RADIUS_MAX,
-  NEST_FOOD_RADIUS_MIN,
+  NEST_FREE_TILES_FLOOR,
+  NEST_SIZE,
+  NEST_TOTAL_TILES_PER_COLONIST,
   PLAYER_MAX_HP,
   SCOUT_DIG_COST,
   SPAWN_X,
@@ -128,19 +128,88 @@ export function nestDistance(state: GameState, x: number, y: number): number {
   return best;
 }
 
-// the nest's food-catchment radius scales with colony size: a floor of
-// NEST_FOOD_RADIUS_MIN tiles at population 0, growing to NEST_FOOD_RADIUS_MAX
-// once population reaches NEST_FOOD_RADIUS_FULL_AT_POP. Growing the colony
-// visibly pays off in reach.
+// effectiveNestFoodRadius is derived from a target *tile count*, not a
+// target distance — drawNestRadius renders the food zone as a filled area,
+// and it's that visible area a player actually perceives as "the nest
+// growing", so a linear-in-population tile count (rather than a
+// linear-in-population distance) is what keeps the perceived growth linear.
+//
+// The nest's food zone is the set of tiles within some distance of its 4
+// corners (see nestCells/nestDistance) — a fixed, position-independent
+// shape. Because that shape is symmetric, tiles at equal distance come in
+// whole clusters ("rings"): only a handful of radii produce a "clean" tile
+// count, so an arbitrary target can't always be hit exactly. This table
+// precomputes, once, every reachable (radius, cumulative tile count)
+// breakpoint so a target can be matched to its nearest reachable radius.
+interface NestRadiusBreakpoint {
+  radius: number;
+  freeTiles: number; // cumulative non-nest tile count at this radius
+}
+
+const NEST_RADIUS_BREAKPOINTS: NestRadiusBreakpoint[] = (() => {
+  // relative corners of the nest's fixed 2x2 footprint — mirrors nestCells()
+  // but translation-invariant, so it can be computed once up front
+  const corners: Point[] = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+  ];
+  // generous enough to cover every reachable tile count up to MAX_COLONISTS
+  const SPAN = 20;
+  const distances: number[] = [];
+  for (let y = -SPAN; y <= SPAN + 1; y++) {
+    for (let x = -SPAN; x <= SPAN + 1; x++) {
+      if (corners.some((c) => c.x === x && c.y === y)) continue;
+      let best = Infinity;
+      for (const c of corners) {
+        const d = Math.hypot(x - c.x, y - c.y);
+        if (d < best) best = d;
+      }
+      distances.push(best);
+    }
+  }
+  distances.sort((a, b) => a - b);
+  const breakpoints: NestRadiusBreakpoint[] = [{ radius: 0, freeTiles: 0 }];
+  for (let i = 0; i < distances.length; i++) {
+    const d = distances[i];
+    const last = breakpoints[breakpoints.length - 1];
+    if (d !== last.radius) breakpoints.push({ radius: d, freeTiles: i + 1 });
+    else last.freeTiles = i + 1;
+  }
+  return breakpoints;
+})();
+
+function radiusForFreeTiles(target: number): number {
+  let best = NEST_RADIUS_BREAKPOINTS[0];
+  let bestDiff = Math.abs(best.freeTiles - target);
+  for (const bp of NEST_RADIUS_BREAKPOINTS) {
+    const diff = Math.abs(bp.freeTiles - target);
+    if (diff < bestDiff) {
+      best = bp;
+      bestDiff = diff;
+    }
+  }
+  return best.radius;
+}
+
+// population only takes MAX_COLONISTS+1 distinct values, so cache the
+// (repeated, non-trivial) breakpoint search per population count
+const nestRadiusByPopulation = new Map<number, number>();
+
 export function effectiveNestFoodRadius(state: GameState): number {
-  return Math.min(
-    NEST_FOOD_RADIUS_MAX,
-    Math.max(
-      NEST_FOOD_RADIUS_MIN,
-      (state.colonists.length / NEST_FOOD_RADIUS_FULL_AT_POP) *
-        NEST_FOOD_RADIUS_MAX,
-    ),
-  );
+  const pop = state.colonists.length;
+  let radius = nestRadiusByPopulation.get(pop);
+  if (radius === undefined) {
+    const totalTarget = pop * NEST_TOTAL_TILES_PER_COLONIST;
+    const freeTarget = Math.max(
+      NEST_FREE_TILES_FLOOR,
+      totalTarget - NEST_SIZE * NEST_SIZE,
+    );
+    radius = radiusForFreeTiles(freeTarget);
+    nestRadiusByPopulation.set(pop, radius);
+  }
+  return radius;
 }
 
 // true if (x,y) lies within the nest's current food-catchment radius — the

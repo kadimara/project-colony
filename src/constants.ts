@@ -79,15 +79,16 @@ export const NEST_FOOD_COST = 1; // 1 ant costs 1 food, consumed from the radius
 export const NEST_INCUBATE_MS = 3000; // time between consuming food and the ant appearing
 export const MAX_COLONISTS = 30;
 
-// the food radius scales with colony size (see effectiveNestFoodRadius):
-// a floor of NEST_FOOD_RADIUS_MIN tiles at population 0 (a literal 0 would
-// be a soft-lock — nest tiles are unwalkable, so no food could ever sit at
-// exactly distance 0), scaling up to NEST_FOOD_RADIUS_MAX once population
-// hits NEST_FOOD_RADIUS_FULL_AT_POP (below MAX_COLONISTS — the radius caps
-// out before the colony does)
-export const NEST_FOOD_RADIUS_MIN = 2;
-export const NEST_FOOD_RADIUS_MAX = 10;
-export const NEST_FOOD_RADIUS_FULL_AT_POP = 20;
+// the food radius is derived (see effectiveNestFoodRadius) from a target
+// *tile count*, not a target distance — the rendered food zone is a filled
+// area, and a linear-in-population tile count is what keeps that area's
+// visible growth linear. Target total tiles (including the nest's own
+// NEST_SIZE x NEST_SIZE footprint) = colonists.length * NEST_TOTAL_TILES_PER_COLONIST,
+// floored so population 0 still has NEST_FREE_TILES_FLOOR free tiles (a
+// literal 0 would be a soft-lock — nest tiles are unwalkable, so no food
+// could ever sit at exactly distance 0)
+export const NEST_TOTAL_TILES_PER_COLONIST = 3;
+export const NEST_FREE_TILES_FLOOR = 8;
 
 // ---- colonists: autonomous NPC ants belonging to the colony ----
 export const COLONIST_MAX_HP: Record<CasteKey, number> = {
